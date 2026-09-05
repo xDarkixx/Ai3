@@ -7,9 +7,11 @@ cd "$ROOT_DIR"
 ENV_FILE="$ROOT_DIR/.env"
 RUNTIME_DIR="$ROOT_DIR/runtime"
 STATE_FILE="$RUNTIME_DIR/lan-info.env"
+JSON_FILE="$RUNTIME_DIR/lan-info.json"
 mkdir -p "$RUNTIME_DIR"
 
 hostname_value="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
+hostname_value="$(printf '%s' "${hostname_value:-ai3-server}" | tr -cd 'A-Za-z0-9.-' | cut -c1-63)"
 hostname_value="${hostname_value:-ai3-server}"
 interface="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '/dev/ {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')"
 ip_value="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')"
@@ -19,8 +21,9 @@ fi
 ip_value="${ip_value:-127.0.0.1}"
 gateway="$(ip -4 route show default 2>/dev/null | awk 'NR==1 {print $3}')"
 gateway="${gateway:-unknown}"
+updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# Only change the two dynamic values. Secrets and all user configuration stay untouched.
+# Only change the two dynamic values. Secrets and all other user configuration stay untouched.
 if [ -f "$ENV_FILE" ]; then
   python3 - "$ENV_FILE" "$hostname_value" "$ip_value" <<'PY'
 from pathlib import Path
@@ -58,9 +61,32 @@ AI3_LAN_HOSTNAME=$hostname_value
 AI3_LAN_IP=$ip_value
 AI3_LAN_INTERFACE=$interface
 AI3_LAN_GATEWAY=$gateway
-AI3_LAN_UPDATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+AI3_LAN_UPDATED_AT=$updated_at
 EOF
 chmod 600 "$STATE_FILE"
+
+# This JSON is deliberately limited to non-secret network metadata and is mounted read-only into Caddy.
+python3 - "$JSON_FILE" "$hostname_value" "$ip_value" "$interface" "$gateway" "$updated_at" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+data = {
+    "hostname": sys.argv[2],
+    "ip": sys.argv[3],
+    "interface": sys.argv[4] or "unknown",
+    "gateway": sys.argv[5],
+    "updated_at": sys.argv[6],
+    "router_target": {"tcp": [80, 443]},
+    "automatic_lan_refresh": True,
+    "router_changes_automatic": False,
+}
+tmp = path.with_suffix(".json.tmp")
+tmp.write_text(json.dumps(data, ensure_ascii=True, separators=(",", ":")) + "\n", encoding="utf-8")
+tmp.replace(path)
+PY
+chmod 644 "$JSON_FILE"
 
 changed=0
 if [ "$old_ip" != "$ip_value" ] || [ "$old_hostname" != "$hostname_value" ]; then changed=1; fi
