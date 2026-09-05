@@ -21,8 +21,13 @@ check "Docker Compose verfügbar" docker compose version
 check "Compose CPU-Konfiguration" docker compose -f docker-compose.yml config -q
 check "Compose GPU-Konfiguration" docker compose -f docker-compose.yml -f docker-compose.gpu.yml config -q
 check "AI3 Health" curl -fsS http://localhost:8080/health
-check "AI3 Modelle" curl -fsS http://localhost:8080/v1/models
-check "Ollama erreichbar" curl -fsS http://localhost:8080/health
+
+if docker compose ps --services --filter status=running 2>/dev/null | grep -qx 'ollama'; then
+  check "Ollama erreichbar" docker compose exec -T ollama ollama list
+else
+  echo "[FAIL] Ollama-Container läuft nicht"
+  fail=1
+fi
 
 if command -v nvidia-smi >/dev/null 2>&1; then
   if docker run --rm --gpus all nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi >/dev/null 2>&1; then
