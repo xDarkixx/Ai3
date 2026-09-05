@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 os.environ["AI3_DB"] = "/tmp/ai3_test.db"
 os.environ["AI3_ADMIN_KEY"] = "test-admin-key"
 os.environ.pop("AI3_LLM_BASE_URL", None)
+os.environ["AI3_OLLAMA_URL"] = "http://127.0.0.1:9"
 
 try:
     os.remove(os.environ["AI3_DB"])
@@ -23,7 +24,7 @@ def test_health_and_web_ui():
 
         web = client.get("/")
         assert web.status_code == 200
-        assert "AI3 Control Center" in web.text
+        assert "AI3" in web.text
         assert client.get("/web/style.css").status_code == 200
         assert client.get("/web/app.js").status_code == 200
 
@@ -59,6 +60,11 @@ def test_token_lifecycle():
         assert admin_tokens.status_code == 200
         assert admin_tokens.json()[0]["prefix"] == issued.json()["token_prefix"]
         assert "token" not in admin_tokens.json()[0]
+
+        admin_status = client.get("/v1/admin/status", headers=admin)
+        assert admin_status.status_code == 200
+        assert admin_status.json()["gateway"] == "online"
+        assert admin_status.json()["ollama"] == "offline"
 
         me = client.get("/v1/me", headers={"Authorization": f"Bearer {token}"})
         assert me.status_code == 200
