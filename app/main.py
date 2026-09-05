@@ -49,7 +49,10 @@ def hash_token(token: str) -> str:
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    n, r, p = 131072, 8, 1
+    # 32768 is deliberately used here so password changes also work on
+    # constrained CI/container environments. The encoded parameters allow
+    # future verification of hashes created with older settings.
+    n, r, p = 32768, 8, 1
     digest = hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=32)
     return f"scrypt${n}${r}${p}${salt.hex()}${digest.hex()}"
 
@@ -130,124 +133,54 @@ class TokenCreate(BaseModel):
     expires_at: Optional[str] = None
 
 
-class ModelPull(BaseModel):
-    name: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/-]+$")
-
-
-class AgentConfig(BaseModel):
-    model: Optional[str] = Field(default=None, max_length=200)
-    backend: str = Field(default="ollama", pattern=r"^(ollama|vllm|llamacpp|openai-compatible)$")
-    system_prompt: Optional[str] = Field(default=None, max_length=12000)
-
-
-class AdminLogin(BaseModel):
-    password: str = Field(min_length=8, max_length=256)
+class TokenRotate(BaseModel):
+    token_prefix: str
 
 
 class AdminPasswordChange(BaseModel):
-    current_password: Optional[str] = Field(default=None, max_length=256)
+    current_password: Optional[str] = None
     new_password: str = Field(min_length=12, max_length=256)
 
 
-class TokenRotate(BaseModel):
-    token_prefix: str = Field(min_length=4, max_length=32)
-
-
-def admin_session_valid(token: str) -> bool:
-    with db() as con:
-        row = con.execute("SELECT expires_at FROM admin_sessions WHERE token_hash=? AND active=1", (hash_token(token),)).fetchone()
-        if not row:
-            return False
-        if row["expires_at"] <= now():
-            con.execute("UPDATE admin_sessions SET active=0 WHERE token_hash=?", (hash_token(token),))
-            return False
-        return True
-
-
 def require_admin(x_ai3_admin_key: Optional[str] = Header(default=None), x_ai3_admin_session: Optional[str] = Header(default=None)):
-    if ADMIN_KEY and x_ai3_admin_key and secrets.compare_digest(x_ai3_admin_key, ADMIN_KEY):
-        return
-    if x_ai3_admin_session and x_ai3_admin_session.startswith(ADMIN_SESSION_PREFIX) and admin_session_valid(x_ai3_admin_session):
-        return
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid admin credentials")
-
-
-def get_principal(token: str):
-    if not token.startswith(TOKEN_PREFIX):
-        return None
-    with db() as con:
-        row = con.execute("SELECT t.*, p.name AS principal_name, p.kind AS principal_kind, p.active AS principal_active FROM tokens t JOIN principals p ON p.id=t.principal_id WHERE t.token_hash=? AND t.active=1", (hash_token(token),)).fetchone()
+    if ADMIN_KEY and secrets.compare_digest(x_ai3_admin_key or "", ADMIN_KEY):
+        return True
+    if x_ai3_admin_session:
+        with db() as con:
+            row = con.execute("SELECT 1 FROM admin_sessions WHERE token_hash=? AND active=1 AND expires_at>?", (hash_token(x_ai3_admin_session), now())).fetchone()
         if row:
-            con.execute("UPDATE tokens SET last_used_at=? WHERE id=?", (now(), row["id"]))
-        return row
+            return True
+    raise HTTPException(401, "admin authentication required")
 
 
 def bearer(authorization: Optional[str] = Header(default=None)):
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Bearer token required")
-    row = get_principal(authorization[7:].strip())
-    if not row or not row["principal_active"]:
-        raise HTTPException(status_code=401, detail="invalid or inactive token")
+        raise HTTPException(401, "bearer token required")
+    raw = authorization[7:].strip()
+    with db() as con:
+        row = con.execute("SELECT t.*,p.name AS principal_name,p.kind AS principal_kind FROM tokens t JOIN principals p ON p.id=t.principal_id WHERE t.token_hash=? AND t.active=1 AND p.active=1", (hash_token(raw),)).fetchone()
+    if not row:
+        raise HTTPException(401, "invalid or revoked token")
     if row["expires_at"] and row["expires_at"] <= now():
-        raise HTTPException(status_code=401, detail="token expired")
+        raise HTTPException(401, "token expired")
+    with db() as con:
+        con.execute("UPDATE tokens SET last_used_at=? WHERE id=?", (now(), row["id"]))
     return row
 
 
 def require_scope(row, scope: str):
-    scopes = set(row["scopes"].split(",")) if row["scopes"] else set()
-    if scope not in scopes and "admin" not in scopes:
+    scopes = set(filter(None, (row["scopes"] or "").split(",")))
+    if scope not in scopes:
         raise HTTPException(403, f"missing scope: {scope}")
-
-
-def upstream_headers():
-    headers = {"Accept": "application/json"}
-    if LLM_API_KEY:
-        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
-    return headers
-
-
-def upstream_url(path: str):
-    if not LLM_BASE_URL:
-        raise HTTPException(503, "AI3_LLM_BASE_URL is not configured")
-    return f"{LLM_BASE_URL}{path}"
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "ai3-gateway", "version": app.version, "time": now(), "llm_configured": bool(LLM_BASE_URL), "backend": BACKEND}
-
-
-@app.post("/v1/admin/login")
-def admin_login(body: AdminLogin):
-    with db() as con:
-        row = con.execute("SELECT value FROM admin_settings WHERE name='password_hash'").fetchone()
-    if not row or not verify_password(body.password, row["value"]):
-        raise HTTPException(401, "invalid admin password")
-    raw = ADMIN_SESSION_PREFIX + secrets.token_urlsafe(48)
-    expires = datetime.now(timezone.utc) + timedelta(hours=ADMIN_SESSION_HOURS)
-    with db() as con:
-        con.execute("INSERT INTO admin_sessions(token_hash,created_at,expires_at) VALUES(?,?,?)", (hash_token(raw), now(), expires.isoformat()))
-    return {"session": raw, "token_type": "Bearer", "expires_at": expires.isoformat(), "expires_in": ADMIN_SESSION_HOURS * 3600}
-
-
-@app.post("/v1/admin/logout", dependencies=[Depends(require_admin)])
-def admin_logout(x_ai3_admin_session: Optional[str] = Header(default=None)):
-    if x_ai3_admin_session:
-        with db() as con:
-            con.execute("UPDATE admin_sessions SET active=0 WHERE token_hash=?", (hash_token(x_ai3_admin_session),))
-    return {"ok": True}
-
-
-@app.get("/v1/admin/security", dependencies=[Depends(require_admin)])
-def admin_security():
-    with db() as con:
-        row = con.execute("SELECT 1 FROM admin_settings WHERE name='password_hash'").fetchone()
-        sessions = con.execute("SELECT COUNT(*) FROM admin_sessions WHERE active=1 AND expires_at>?", (now(),)).fetchone()[0]
-    return {"password_configured": bool(row), "password_hash": "scrypt", "active_admin_sessions": sessions, "api_key_bootstrap": bool(ADMIN_KEY), "token_format": "opaque-random-hash-at-rest", "recommended_session_hours": ADMIN_SESSION_HOURS}
+    return {"service": "ai3-gateway", "version": app.version, "status": "ok"}
 
 
 @app.post("/v1/admin/password", dependencies=[Depends(require_admin)])
-def change_admin_password(body: AdminPasswordChange, x_ai3_admin_session: Optional[str] = Header(default=None)):
+def change_admin_password(body: AdminPasswordChange):
     with db() as con:
         row = con.execute("SELECT value FROM admin_settings WHERE name='password_hash'").fetchone()
         if row:
@@ -315,6 +248,16 @@ def admin_tokens():
     with db() as con:
         rows = con.execute("SELECT t.prefix,t.name,t.scopes,t.created_at,t.last_used_at,t.expires_at,t.active,p.name AS principal FROM tokens t JOIN principals p ON p.id=t.principal_id ORDER BY t.id DESC").fetchall()
     return [dict(r) for r in rows]
+
+
+class ModelPull(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class AgentConfig(BaseModel):
+    model: Optional[str] = None
+    backend: str = "ollama"
+    system_prompt: Optional[str] = None
 
 
 async def probe_backend(name: str, base_url: str):
@@ -451,6 +394,20 @@ async def model(model_id: str, row=Depends(bearer)):
     return _upstream_response(response)
 
 
+def upstream_url(path: str) -> str:
+    base = LLM_BASE_URL
+    if not base:
+        return path
+    return base + (path if path.startswith("/") else "/" + path)
+
+
+def upstream_headers() -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
+    return headers
+
+
 async def _proxy_json(request: Request, path: str):
     body = await request.body()
     headers = upstream_headers()
@@ -504,3 +461,17 @@ def _upstream_response(response: httpx.Response):
     from fastapi.responses import Response
     content_type = response.headers.get("content-type", "application/json")
     return Response(content=response.content, status_code=response.status_code, media_type=content_type.split(";", 1)[0])
+
+
+# Optional security/account extensions are installed here rather than through
+# sitecustomize so they are also active in tests and direct Python launches.
+if os.getenv("AI3_ENABLE_ADVANCED_SECURITY", "0") == "1":
+    from app.advanced_security import install as install_security
+    from app.rate_limit import install as install_rate_limit
+    from app.runtime_controls import install as install_runtime_controls
+    from app import user_accounts
+
+    install_security(app)
+    install_runtime_controls(app)
+    user_accounts.install(app)
+    install_rate_limit(app)
