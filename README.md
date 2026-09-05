@@ -4,6 +4,22 @@ AI3 ist ein selbst gehosteter Token- und API-Gateway für KI-Anwendungen und KI-
 
 OpenClaw unterstützt benutzerdefinierte Provider mit `baseUrl` und `openai-completions`; damit kann OpenClaw AI3 als eigenen lokalen Provider verwenden. citeturn0search1turn0search2
 
+## Weboberfläche
+
+AI3 enthält jetzt ein integriertes **Control Center** direkt im selben Server. Es wird unter `http://localhost:8080/` geöffnet und benötigt keinen separaten Webserver oder Frontend-Container. FastAPI kann statische Frontends direkt ausliefern. citeturn0search3turn0search5
+
+Die Oberfläche bietet:
+
+- Dashboard mit Server- und Gateway-Status
+- AI-Chat über das AI3-Gateway
+- Benutzer-/Agent-Verwaltung
+- Token-Erstellung und Widerruf
+- Anzeige der verfügbaren Modelle
+- Verbindungsinformationen
+- responsive Darstellung für PC und Smartphone
+
+Die Admin-Funktionen sind durch denselben `X-AI3-Admin-Key` geschützt wie die Admin-API. Aus Sicherheitsgründen werden vollständige Tokens nur bei der Erstellung angezeigt; die Token-Liste liefert niemals den geheimen Tokenwert zurück.
+
 ## Funktionen
 
 - Eigene opaque API-Tokens mit `ai3_`-Prefix
@@ -15,6 +31,7 @@ OpenClaw unterstützt benutzerdefinierte Provider mit `baseUrl` und `openai-comp
 - geschützte Agenten-API
 - OpenAI-kompatible Gateway-Endpunkte: `/v1/models`, `/v1/models/{model}`, `/v1/chat/completions`, `/v1/responses`, `/v1/embeddings`
 - Chat-Streaming
+- integrierte Weboberfläche
 - integrierter lokaler Ollama-Stack
 - Weiterleitung an Ollama, vLLM, llama.cpp, SGLang oder andere OpenAI-kompatible Server
 - SQLite ohne externen Datenbankdienst
@@ -38,6 +55,12 @@ chmod +x scripts/setup-local.sh
 ./scripts/setup-local.sh
 ```
 
+Danach die Weboberfläche öffnen:
+
+```text
+http://localhost:8080/
+```
+
 Das Skript:
 
 1. erzeugt bei Bedarf automatisch einen zufälligen `AI3_ADMIN_KEY`,
@@ -56,24 +79,25 @@ Ollama kann offiziell als Docker-Container betrieben werden. citeturn0sear
 
 ```bash
 cp .env.example .env
+docker compose up -d --build
 ```
 
-In `.env` einen langen eigenen Admin-Key setzen und anschließend:
+Danach:
 
-```bash
-docker compose up -d --build
+```text
+http://localhost:8080/
 ```
 
 Der Standardaufbau besteht aus:
 
 ```text
-OpenClaw / KI-App
-       |
-       | Authorization: Bearer ai3_...
-       v
+Browser / OpenClaw / KI-App
+          |
+          | AI3 Admin UI oder Bearer Token
+          v
 +--------------------------+
 |       AI3 Gateway        |
-| Token / Scope / Ablauf   |
+| Web UI / Token / Scope   |
 +------------+-------------+
              |
              | OpenAI-compatible API
@@ -104,55 +128,6 @@ Vorlage:
 openclaw/ai3-provider.example.json5
 ```
 
-Die Konfiguration sieht grundsätzlich so aus:
-
-```json5
-{
-  models: {
-    mode: "merge",
-    providers: {
-      ai3: {
-        baseUrl: "http://127.0.0.1:8080/v1",
-        apiKey: "DEIN_AI3_TOKEN",
-        api: "openai-completions",
-        timeoutSeconds: 300,
-        models: [
-          {
-            id: "llama3.2:3b",
-            name: "AI3 Local Llama 3.2 3B",
-            reasoning: false,
-            input: ["text"],
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 32768,
-            maxTokens: 8192
-          }
-        ]
-      }
-    }
-  },
-  agents: {
-    defaults: {
-      model: { primary: "ai3/llama3.2:3b" }
-    }
-  }
-}
-```
-
-Wenn OpenClaw in einem anderen Container läuft, muss `127.0.0.1` durch den für OpenClaw erreichbaren AI3-Host bzw. Docker-Service ersetzt werden. OpenClaw hat dafür einen Netzwerk-Schutz für lokale/private Provider-Endpunkte. citeturn0search1
-
-## Andere lokale Modelle / Server
-
-AI3 ist nicht auf Ollama festgelegt. Für einen lokalen vLLM-Server beispielsweise:
-
-```env
-AI3_LLM_BASE_URL=http://host.docker.internal:8000/v1
-AI3_LLM_API_KEY=
-```
-
-OpenClaw dokumentiert vLLM ausdrücklich als OpenAI-kompatiblen lokalen Provider mit `/v1/models` und `/v1/chat/completions`. citeturn0search4
-
-Auch llama.cpp, SGLang und andere kompatible lokale Gateways können verwendet werden. citeturn0search8
-
 ## Testen
 
 ```bash
@@ -160,14 +135,7 @@ curl http://localhost:8080/health
 curl http://localhost:8080/v1/models -H "Authorization: Bearer DEIN_AI3_TOKEN"
 ```
 
-Chat:
-
-```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer DEIN_AI3_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"llama3.2:3b","messages":[{"role":"user","content":"Hallo"}]}'
-```
+Oder einfach die Weboberfläche unter `http://localhost:8080/` öffnen.
 
 ## Sicherheit
 
@@ -179,6 +147,7 @@ curl http://localhost:8080/v1/chat/completions \
 - Die generierte OpenClaw-Datei mit Token wird automatisch ignoriert.
 - Für öffentlichen Betrieb sollte AI3 hinter HTTPS, z. B. Nginx oder Caddy, betrieben werden.
 - Für produktive Umgebungen sollten Tokens mit Ablaufzeit verwendet und bei Verdacht widerrufen werden.
+- Die Weboberfläche zeigt vollständige Tokenwerte nur unmittelbar nach Erstellung an.
 
 ## Tests
 
@@ -187,13 +156,18 @@ python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
-Der Workflow `.github/workflows/test.yml` führt die Tests bei Pushes auf `main` und bei Pull Requests automatisch aus.
+Die Tests prüfen jetzt zusätzlich, dass die Weboberfläche und ihre Assets ausgeliefert werden.
 
 ## API
 
+- `GET /` — integrierte Weboberfläche
+- `GET /web/*` — Web-Assets
 - `GET /health`
 - `POST /v1/principals` — Admin
+- `GET /v1/admin/principals` — Admin
 - `POST /v1/tokens` — Admin
+- `GET /v1/admin/tokens` — Admin
+- `GET /v1/admin/models` — Admin
 - `POST /v1/tokens/revoke?token_prefix=...` — Admin
 - `GET /v1/me`
 - `GET /v1/agents`
