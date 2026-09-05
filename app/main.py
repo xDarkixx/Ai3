@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
@@ -19,8 +20,9 @@ LLM_BASE_URL = os.getenv("AI3_LLM_BASE_URL", "").rstrip("/")
 LLM_API_KEY = os.getenv("AI3_LLM_API_KEY", "")
 LLM_TIMEOUT = float(os.getenv("AI3_LLM_TIMEOUT", "300"))
 OLLAMA_URL = os.getenv("AI3_OLLAMA_URL", "http://ollama:11434").rstrip("/")
+BACKEND = os.getenv("AI3_BACKEND", "ollama")
 
-app = FastAPI(title="AI3 Token Server", version="2.2.0")
+app = FastAPI(title="AI3 Universal AI Gateway", version="3.0.0")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
 
@@ -43,12 +45,38 @@ def init_db():
         CREATE TABLE IF NOT EXISTS tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, principal_id INTEGER NOT NULL, token_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, name TEXT NOT NULL, scopes TEXT NOT NULL, created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, active INTEGER NOT NULL DEFAULT 1, FOREIGN KEY(principal_id) REFERENCES principals(id));
         CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
         CREATE INDEX IF NOT EXISTS idx_tokens_principal ON tokens(principal_id);
+        CREATE TABLE IF NOT EXISTS agent_configs (principal_id INTEGER PRIMARY KEY, model TEXT, backend TEXT NOT NULL DEFAULT 'ollama', system_prompt TEXT, updated_at TEXT NOT NULL, FOREIGN KEY(principal_id) REFERENCES principals(id));
+        CREATE TABLE IF NOT EXISTS usage_events (id INTEGER PRIMARY KEY AUTOINCREMENT, endpoint TEXT NOT NULL, principal_id INTEGER, status_code INTEGER NOT NULL, duration_ms INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, FOREIGN KEY(principal_id) REFERENCES principals(id));
+        CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_events(created_at);
         """)
 
 
 @app.on_event("startup")
 def startup():
     init_db()
+
+
+@app.middleware("http")
+async def usage_middleware(request: Request, call_next):
+    started = datetime.now(timezone.utc)
+    response = await call_next(request)
+    principal_id = None
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        raw = auth[7:].strip()
+        try:
+            with db() as con:
+                row = con.execute("SELECT principal_id FROM tokens WHERE token_hash=?", (hashlib.sha256(raw.encode()).hexdigest(),)).fetchone()
+                principal_id = row[0] if row else None
+        except Exception:
+            principal_id = None
+    duration = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+    try:
+        with db() as con:
+            con.execute("INSERT INTO usage_events(endpoint,principal_id,status_code,duration_ms,created_at) VALUES(?,?,?,?,?)", (request.url.path, principal_id, response.status_code, duration, now()))
+    except Exception:
+        pass
+    return response
 
 
 @app.get("/", include_in_schema=False)
@@ -72,6 +100,12 @@ class ModelPull(BaseModel):
     name: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/-]+$")
 
 
+class AgentConfig(BaseModel):
+    model: Optional[str] = Field(default=None, max_length=200)
+    backend: str = Field(default="ollama", pattern=r"^(ollama|vllm|llamacpp|openai-compatible)$")
+    system_prompt: Optional[str] = Field(default=None, max_length=12000)
+
+
 def require_admin(x_ai3_admin_key: Optional[str] = Header(default=None)):
     if not ADMIN_KEY or not x_ai3_admin_key or not secrets.compare_digest(x_ai3_admin_key, ADMIN_KEY):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid admin key")
@@ -85,10 +119,7 @@ def get_principal(token: str):
     if not token.startswith(TOKEN_PREFIX):
         return None
     with db() as con:
-        row = con.execute("""
-            SELECT t.*, p.name AS principal_name, p.kind AS principal_kind, p.active AS principal_active
-            FROM tokens t JOIN principals p ON p.id=t.principal_id WHERE t.token_hash=? AND t.active=1
-        """, (hash_token(token),)).fetchone()
+        row = con.execute("SELECT t.*, p.name AS principal_name, p.kind AS principal_kind, p.active AS principal_active FROM tokens t JOIN principals p ON p.id=t.principal_id WHERE t.token_hash=? AND t.active=1", (hash_token(token),)).fetchone()
         if row:
             con.execute("UPDATE tokens SET last_used_at=? WHERE id=?", (now(), row["id"]))
         return row
@@ -126,7 +157,7 @@ def upstream_url(path: str):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "ai3-token-server", "time": now(), "llm_configured": bool(LLM_BASE_URL)}
+    return {"status": "ok", "service": "ai3-gateway", "version": app.version, "time": now(), "llm_configured": bool(LLM_BASE_URL), "backend": BACKEND}
 
 
 @app.post("/v1/principals", dependencies=[Depends(require_admin)])
@@ -167,11 +198,12 @@ def admin_tokens():
 
 @app.get("/v1/admin/models", dependencies=[Depends(require_admin)])
 async def admin_models():
-    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
-        response = await client.get(upstream_url("/models"), headers=upstream_headers())
-    if response.status_code >= 400:
-        raise HTTPException(response.status_code, response.text[:1000])
-    return response.json()
+    if LLM_BASE_URL:
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+            response = await client.get(upstream_url("/models"), headers=upstream_headers())
+        if response.status_code < 400:
+            return response.json()
+    return {"object": "list", "data": []}
 
 
 @app.get("/v1/admin/local-models", dependencies=[Depends(require_admin)])
@@ -202,28 +234,46 @@ async def admin_status():
         ollama_status = "online"
     except Exception:
         pass
-    return {"service": "AI3", "version": app.version, "gateway": "online", "ollama": ollama_status, "local_models": local_models, "llm_configured": bool(LLM_BASE_URL)}
-
-
-@app.get("/v1/me")
-def me(row=Depends(bearer)):
-    return {"principal": row["principal_name"], "kind": row["principal_kind"], "scopes": row["scopes"].split(",") if row["scopes"] else []}
-
-
-@app.post("/v1/tokens/revoke", dependencies=[Depends(require_admin)])
-def revoke_token(token_prefix: str):
     with db() as con:
-        cur = con.execute("UPDATE tokens SET active=0 WHERE prefix=?", (token_prefix,))
-        if cur.rowcount == 0:
-            raise HTTPException(404, "token not found")
-    return {"revoked": True, "token_prefix": token_prefix}
+        principals = con.execute("SELECT COUNT(*) FROM principals WHERE active=1").fetchone()[0]
+        tokens = con.execute("SELECT COUNT(*) FROM tokens WHERE active=1").fetchone()[0]
+        requests = con.execute("SELECT COUNT(*) FROM usage_events").fetchone()[0]
+    return {"service": "AI3", "version": app.version, "gateway": "online", "ollama": ollama_status, "local_models": local_models, "principals": principals, "active_tokens": tokens, "requests": requests, "backend": BACKEND, "llm_configured": bool(LLM_BASE_URL)}
+
+
+@app.get("/v1/admin/usage", dependencies=[Depends(require_admin)])
+def admin_usage():
+    with db() as con:
+        total = con.execute("SELECT COUNT(*) FROM usage_events").fetchone()[0]
+        errors = con.execute("SELECT COUNT(*) FROM usage_events WHERE status_code >= 400").fetchone()[0]
+        avg_ms = con.execute("SELECT COALESCE(AVG(duration_ms),0) FROM usage_events").fetchone()[0]
+        endpoints = [dict(r) for r in con.execute("SELECT endpoint,COUNT(*) AS requests,COALESCE(AVG(duration_ms),0) AS avg_ms FROM usage_events GROUP BY endpoint ORDER BY requests DESC LIMIT 20").fetchall()]
+        agents = [dict(r) for r in con.execute("SELECT COALESCE(p.name,'anonymous') AS principal,COUNT(*) AS requests FROM usage_events u LEFT JOIN principals p ON p.id=u.principal_id GROUP BY u.principal_id ORDER BY requests DESC LIMIT 20").fetchall()]
+    return {"total_requests": total, "errors": errors, "error_rate": round(errors / total, 4) if total else 0, "avg_latency_ms": round(avg_ms, 1), "endpoints": endpoints, "agents": agents}
+
+
+@app.get("/v1/admin/agents", dependencies=[Depends(require_admin)])
+def admin_agents():
+    with db() as con:
+        rows = con.execute("SELECT p.id,p.name,p.kind,p.created_at,p.active,c.model,c.backend,c.system_prompt,c.updated_at FROM principals p LEFT JOIN agent_configs c ON c.principal_id=p.id WHERE p.kind='agent' ORDER BY p.id").fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.put("/v1/admin/agents/{principal_id}", dependencies=[Depends(require_admin)])
+def update_agent(principal_id: int, body: AgentConfig):
+    with db() as con:
+        p = con.execute("SELECT id,name,kind FROM principals WHERE id=? AND active=1", (principal_id,)).fetchone()
+        if not p or p["kind"] != "agent":
+            raise HTTPException(404, "agent not found")
+        con.execute("INSERT INTO agent_configs(principal_id,model,backend,system_prompt,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(principal_id) DO UPDATE SET model=excluded.model,backend=excluded.backend,system_prompt=excluded.system_prompt,updated_at=excluded.updated_at", (principal_id, body.model, body.backend, body.system_prompt, now()))
+    return {"ok": True, "agent": p["name"], **body.model_dump()}
 
 
 @app.get("/v1/agents")
 def agents(row=Depends(bearer)):
     require_scope(row, "agents:read")
     with db() as con:
-        rows = con.execute("SELECT id,name,kind,created_at FROM principals WHERE active=1 ORDER BY id").fetchall()
+        rows = con.execute("SELECT p.id,p.name,p.kind,p.created_at,c.model,c.backend FROM principals p LEFT JOIN agent_configs c ON c.principal_id=p.id WHERE p.active=1 ORDER BY p.id").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -261,7 +311,6 @@ async def chat_completions(request: Request, row=Depends(bearer)):
     headers = upstream_headers()
     headers["Content-Type"] = request.headers.get("content-type", "application/json")
     try:
-        import json
         payload = json.loads(body or b"{}")
     except Exception:
         raise HTTPException(400, "invalid JSON body")
