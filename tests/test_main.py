@@ -1,4 +1,5 @@
 import os
+
 from fastapi.testclient import TestClient
 
 os.environ["AI3_DB"] = "/tmp/ai3_test.db"
@@ -13,12 +14,18 @@ except FileNotFoundError:
 from app.main import app  # noqa: E402
 
 
-def test_health():
+def test_health_and_web_ui():
     with TestClient(app) as client:
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
         assert response.json()["llm_configured"] is False
+
+        web = client.get("/")
+        assert web.status_code == 200
+        assert "AI3 Control Center" in web.text
+        assert client.get("/web/style.css").status_code == 200
+        assert client.get("/web/app.js").status_code == 200
 
 
 def test_token_lifecycle():
@@ -43,6 +50,15 @@ def test_token_lifecycle():
         assert issued.status_code == 200
         token = issued.json()["token"]
         assert token.startswith("ai3_")
+
+        admin_principals = client.get("/v1/admin/principals", headers=admin)
+        assert admin_principals.status_code == 200
+        assert any(x["name"] == "test-agent" for x in admin_principals.json())
+
+        admin_tokens = client.get("/v1/admin/tokens", headers=admin)
+        assert admin_tokens.status_code == 200
+        assert admin_tokens.json()[0]["prefix"] == issued.json()["token_prefix"]
+        assert "token" not in admin_tokens.json()[0]
 
         me = client.get("/v1/me", headers={"Authorization": f"Bearer {token}"})
         assert me.status_code == 200
