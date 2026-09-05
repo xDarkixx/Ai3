@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 *.db
 .venv/
+openclaw/ai3-provider.generated.json5
