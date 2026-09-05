@@ -12,9 +12,12 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       AI3_DOMAIN: ${AI3_DOMAIN:-localhost}
+      AI3_LAN_HOSTNAME: ${AI3_LAN_HOSTNAME:-localhost}
+      AI3_LAN_IP: ${AI3_LAN_IP:-127.0.0.1}
       AI3_TLS_EMAIL: ${AI3_TLS_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./runtime:/runtime:ro
       - caddy-data:/data
       - caddy-config:/config
     networks:
