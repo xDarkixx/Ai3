@@ -5,14 +5,19 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 DB_PATH = os.getenv("AI3_DB", "/data/ai3.db")
 ADMIN_KEY = os.getenv("AI3_ADMIN_KEY", "")
 TOKEN_PREFIX = "ai3_"
+LLM_BASE_URL = os.getenv("AI3_LLM_BASE_URL", "").rstrip("/")
+LLM_API_KEY = os.getenv("AI3_LLM_API_KEY", "")
+LLM_TIMEOUT = float(os.getenv("AI3_LLM_TIMEOUT", "300"))
 
-app = FastAPI(title="AI3 Token Server", version="1.0.0")
+app = FastAPI(title="AI3 Token Server", version="2.0.0")
 
 
 def now():
@@ -105,9 +110,28 @@ def bearer(authorization: Optional[str] = Header(default=None)):
     return row
 
 
+def require_scope(row, scope: str):
+    scopes = set(row["scopes"].split(",")) if row["scopes"] else set()
+    if scope not in scopes and "admin" not in scopes:
+        raise HTTPException(403, f"missing scope: {scope}")
+
+
+def upstream_headers() -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    if LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
+    return headers
+
+
+def upstream_url(path: str) -> str:
+    if not LLM_BASE_URL:
+        raise HTTPException(503, "AI3_LLM_BASE_URL is not configured")
+    return f"{LLM_BASE_URL}{path}"
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "ai3-token-server", "time": now()}
+    return {"status": "ok", "service": "ai3-token-server", "time": now(), "llm_configured": bool(LLM_BASE_URL)}
 
 
 @app.post("/v1/principals", dependencies=[Depends(require_admin)])
@@ -148,8 +172,81 @@ def revoke_token(token_prefix: str):
 
 @app.get("/v1/agents")
 def agents(row=Depends(bearer)):
-    if "agents:read" not in row["scopes"].split(",") and "admin" not in row["scopes"].split(","):
-        raise HTTPException(403, "missing scope: agents:read")
+    require_scope(row, "agents:read")
     with db() as con:
         rows = con.execute("SELECT id,name,kind,created_at FROM principals WHERE active=1 ORDER BY id").fetchall()
     return [dict(r) for r in rows]
+
+
+@app.get("/v1/models")
+async def models(row=Depends(bearer)):
+    require_scope(row, "ai:inference")
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+        response = await client.get(upstream_url("/models"), headers=upstream_headers())
+    return _upstream_response(response)
+
+
+@app.get("/v1/models/{model_id}")
+async def model(model_id: str, row=Depends(bearer)):
+    require_scope(row, "ai:inference")
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+        response = await client.get(upstream_url(f"/models/{model_id}"), headers=upstream_headers())
+    return _upstream_response(response)
+
+
+async def _proxy_json(request: Request, path: str):
+    body = await request.body()
+    headers = upstream_headers()
+    content_type = request.headers.get("content-type")
+    if content_type:
+        headers["Content-Type"] = content_type
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+        response = await client.post(upstream_url(path), content=body, headers=headers)
+    return _upstream_response(response)
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: Request, row=Depends(bearer)):
+    require_scope(row, "ai:inference")
+    body = await request.body()
+    headers = upstream_headers()
+    headers["Content-Type"] = request.headers.get("content-type", "application/json")
+    try:
+        import json
+        payload = json.loads(body or b"{}")
+    except Exception:
+        raise HTTPException(400, "invalid JSON body")
+    if payload.get("stream") is not True:
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+            response = await client.post(upstream_url("/chat/completions"), content=body, headers=headers)
+        return _upstream_response(response)
+
+    async def stream():
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+            async with client.stream("POST", upstream_url("/chat/completions"), content=body, headers=headers) as response:
+                if response.status_code >= 400:
+                    detail = await response.aread()
+                    yield detail
+                    return
+                async for chunk in response.aiter_raw():
+                    yield chunk
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/v1/responses")
+async def responses(request: Request, row=Depends(bearer)):
+    require_scope(row, "ai:inference")
+    return await _proxy_json(request, "/responses")
+
+
+@app.post("/v1/embeddings")
+async def embeddings(request: Request, row=Depends(bearer)):
+    require_scope(row, "ai:inference")
+    return await _proxy_json(request, "/embeddings")
+
+
+def _upstream_response(response: httpx.Response):
+    from fastapi.responses import Response
+    content_type = response.headers.get("content-type", "application/json")
+    return Response(content=response.content, status_code=response.status_code, media_type=content_type.split(";", 1)[0])
