@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT_DIR"
 need_cmd(){ command -v "$1" >/dev/null 2>&1 || { echo "Fehlt: $1"; exit 1; }; }
 need_cmd docker; need_cmd curl; need_cmd python3; docker compose version >/dev/null
-mkdir -p secrets
+mkdir -p secrets runtime
 if [ ! -f secrets/ai3_data_encryption_key ]; then python3 - <<'PY' > secrets/ai3_data_encryption_key
 import secrets
 print(secrets.token_hex(32))
@@ -11,12 +11,11 @@ PY
 fi
 chmod 600 secrets/ai3_data_encryption_key
 
-# Detect the LAN identity so the router only needs to forward traffic to this PC.
-LAN_HOSTNAME="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo ai3-server)"
-LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-if [ -z "$LAN_IP" ]; then
-  LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')"
-fi
+# Detect the current LAN identity before Compose interpolates the Caddy configuration.
+chmod +x scripts/network-refresh.sh 2>/dev/null || true
+./scripts/network-refresh.sh >/dev/null
+LAN_HOSTNAME="$(grep '^AI3_LAN_HOSTNAME=' .env 2>/dev/null | cut -d= -f2- || hostname -s 2>/dev/null || hostname)"
+LAN_IP="$(grep '^AI3_LAN_IP=' .env 2>/dev/null | cut -d= -f2- || true)"
 LAN_IP="${LAN_IP:-127.0.0.1}"
 
 if [ ! -f .env ]; then
@@ -55,11 +54,12 @@ AI3_BACKUP_DIR=/data/backups
 EOF
  chmod 600 .env; echo "Admin-Passwort: $ADMIN_PASSWORD"
 else
-  # Keep existing settings, but add LAN discovery fields for upgrades.
   if ! grep -q '^AI3_LAN_HOSTNAME=' .env; then printf '\nAI3_LAN_HOSTNAME=%s\n' "$LAN_HOSTNAME" >> .env; fi
   if ! grep -q '^AI3_LAN_IP=' .env; then printf 'AI3_LAN_IP=%s\n' "$LAN_IP" >> .env; fi
   chmod 600 .env
 fi
+# Refresh once more after creating .env so an existing installation always gets the current address.
+./scripts/network-refresh.sh >/dev/null
 ADMIN_KEY="$(grep '^AI3_ADMIN_KEY=' .env|cut -d= -f2-)"; MODEL="$(grep '^AI3_MODEL=' .env|cut -d= -f2-)"; DOMAIN="$(grep '^AI3_DOMAIN=' .env|cut -d= -f2-)"; LAN_HOSTNAME="$(grep '^AI3_LAN_HOSTNAME=' .env|cut -d= -f2-)"; LAN_IP="$(grep '^AI3_LAN_IP=' .env|cut -d= -f2-)"
 docker network inspect ai3-public >/dev/null 2>&1 || docker network create ai3-public >/dev/null
 COMPOSE_FILES=(-f docker-compose.yml)
