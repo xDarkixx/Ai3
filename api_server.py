@@ -59,6 +59,13 @@ def token_ok(authorization: str | None):
         con.execute("UPDATE tokens SET last_used_at=? WHERE id=?", (now(), row["id"]))
 
 
+def bearer_or_admin(authorization: str | None, x_ai3_admin_key: str | None):
+    if x_ai3_admin_key:
+        admin(x_ai3_admin_key)
+        return
+    token_ok(authorization)
+
+
 class PullRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/-]+$")
 
@@ -69,8 +76,8 @@ def health():
 
 
 @api.get("/api/v1/models")
-async def models(authorization: str | None = Header(default=None)):
-    token_ok(authorization)
+async def models(authorization: str | None = Header(default=None), x_ai3_admin_key: str | None = Header(default=None)):
+    bearer_or_admin(authorization, x_ai3_admin_key)
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(f"{OLLAMA_URL}/api/tags")
     if r.status_code >= 400:
@@ -101,8 +108,8 @@ async def pull_model(body: PullRequest, x_ai3_admin_key: str | None = Header(def
 
 
 @api.get("/api/v1/status")
-def status(authorization: str | None = Header(default=None)):
-    token_ok(authorization)
+def status(authorization: str | None = Header(default=None), x_ai3_admin_key: str | None = Header(default=None)):
+    bearer_or_admin(authorization, x_ai3_admin_key)
     with db() as con:
         model_count = con.execute("SELECT COUNT(*) FROM models WHERE status='ready'").fetchone()[0]
         event_count = con.execute("SELECT COUNT(*) FROM api_events").fetchone()[0]
