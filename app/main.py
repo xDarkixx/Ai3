@@ -21,7 +21,6 @@ LLM_TIMEOUT = float(os.getenv("AI3_LLM_TIMEOUT", "300"))
 OLLAMA_URL = os.getenv("AI3_OLLAMA_URL", "http://ollama:11434").rstrip("/")
 
 app = FastAPI(title="AI3 Token Server", version="2.2.0")
-
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
 
@@ -40,26 +39,8 @@ def db():
 def init_db():
     with db() as con:
         con.executescript("""
-        CREATE TABLE IF NOT EXISTS principals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            kind TEXT NOT NULL CHECK(kind IN ('user','agent','service')),
-            created_at TEXT NOT NULL,
-            active INTEGER NOT NULL DEFAULT 1
-        );
-        CREATE TABLE IF NOT EXISTS tokens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            principal_id INTEGER NOT NULL,
-            token_hash TEXT NOT NULL UNIQUE,
-            prefix TEXT NOT NULL,
-            name TEXT NOT NULL,
-            scopes TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            last_used_at TEXT,
-            expires_at TEXT,
-            active INTEGER NOT NULL DEFAULT 1,
-            FOREIGN KEY(principal_id) REFERENCES principals(id)
-        );
+        CREATE TABLE IF NOT EXISTS principals (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK(kind IN ('user','agent','service')), created_at TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE IF NOT EXISTS tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, principal_id INTEGER NOT NULL, token_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, name TEXT NOT NULL, scopes TEXT NOT NULL, created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, active INTEGER NOT NULL DEFAULT 1, FOREIGN KEY(principal_id) REFERENCES principals(id));
         CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
         CREATE INDEX IF NOT EXISTS idx_tokens_principal ON tokens(principal_id);
         """)
@@ -106,8 +87,7 @@ def get_principal(token: str):
     with db() as con:
         row = con.execute("""
             SELECT t.*, p.name AS principal_name, p.kind AS principal_kind, p.active AS principal_active
-            FROM tokens t JOIN principals p ON p.id=t.principal_id
-            WHERE t.token_hash=? AND t.active=1
+            FROM tokens t JOIN principals p ON p.id=t.principal_id WHERE t.token_hash=? AND t.active=1
         """, (hash_token(token),)).fetchone()
         if row:
             con.execute("UPDATE tokens SET last_used_at=? WHERE id=?", (now(), row["id"]))
@@ -131,14 +111,14 @@ def require_scope(row, scope: str):
         raise HTTPException(403, f"missing scope: {scope}")
 
 
-def upstream_headers() -> dict[str, str]:
+def upstream_headers():
     headers = {"Accept": "application/json"}
     if LLM_API_KEY:
         headers["Authorization"] = f"Bearer {LLM_API_KEY}"
     return headers
 
 
-def upstream_url(path: str) -> str:
+def upstream_url(path: str):
     if not LLM_BASE_URL:
         raise HTTPException(503, "AI3_LLM_BASE_URL is not configured")
     return f"{LLM_BASE_URL}{path}"
@@ -166,9 +146,9 @@ def create_token(body: TokenCreate):
         if not p:
             raise HTTPException(404, "principal not found")
         raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
-        con.execute("INSERT INTO tokens(principal_id,token_hash,prefix,name,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?)",
-                    (p["id"], hash_token(raw), raw[:12], body.name, ",".join(sorted(set(body.scopes))), now(), body.expires_at))
-        return {"token": raw, "token_prefix": raw[:12], "principal": p["name"], "scopes": sorted(set(body.scopes)), "expires_at": body.expires_at}
+        scopes = sorted(set(body.scopes))
+        con.execute("INSERT INTO tokens(principal_id,token_hash,prefix,name,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?)", (p["id"], hash_token(raw), raw[:12], body.name, ",".join(scopes), now(), body.expires_at))
+        return {"token": raw, "token_prefix": raw[:12], "principal": p["name"], "scopes": scopes, "expires_at": body.expires_at}
 
 
 @app.get("/v1/admin/principals", dependencies=[Depends(require_admin)])
@@ -181,11 +161,7 @@ def admin_principals():
 @app.get("/v1/admin/tokens", dependencies=[Depends(require_admin)])
 def admin_tokens():
     with db() as con:
-        rows = con.execute("""
-            SELECT t.prefix,t.name,t.scopes,t.created_at,t.last_used_at,t.expires_at,t.active,
-                   p.name AS principal
-            FROM tokens t JOIN principals p ON p.id=t.principal_id ORDER BY t.id DESC
-        """).fetchall()
+        rows = con.execute("SELECT t.prefix,t.name,t.scopes,t.created_at,t.last_used_at,t.expires_at,t.active,p.name AS principal FROM tokens t JOIN principals p ON p.id=t.principal_id ORDER BY t.id DESC").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -218,8 +194,15 @@ async def admin_pull_model(body: ModelPull):
 
 @app.get("/v1/admin/status", dependencies=[Depends(require_admin)])
 async def admin_status():
-    local = await admin_local_models()
-    return {"service": "AI3", "version": app.version, "gateway": "online", "local_models": len(local.get("models", [])), "llm_configured": bool(LLM_BASE_URL)}
+    local_models = 0
+    ollama_status = "offline"
+    try:
+        local = await admin_local_models()
+        local_models = len(local.get("models", []))
+        ollama_status = "online"
+    except Exception:
+        pass
+    return {"service": "AI3", "version": app.version, "gateway": "online", "ollama": ollama_status, "local_models": local_models, "llm_configured": bool(LLM_BASE_URL)}
 
 
 @app.get("/v1/me")
@@ -291,12 +274,10 @@ async def chat_completions(request: Request, row=Depends(bearer)):
         async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
             async with client.stream("POST", upstream_url("/chat/completions"), content=body, headers=headers) as response:
                 if response.status_code >= 400:
-                    detail = await response.aread()
-                    yield detail
+                    yield await response.aread()
                     return
                 async for chunk in response.aiter_raw():
                     yield chunk
-
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
