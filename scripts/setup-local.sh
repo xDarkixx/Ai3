@@ -51,7 +51,7 @@ MODEL="$(grep '^AI3_MODEL=' .env | cut -d= -f2-)"
 
 COMPOSE_FILES=(-f docker-compose.yml)
 if [ -f docker-compose.gpu.yml ] && command -v nvidia-smi >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  if docker run --rm --gpus all nvidia/cuda:13.0.0-base-ubuntu24.04 nvidia-smi >/dev/null 2>&1; then
+  if docker run --rm --gpus all nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi >/dev/null 2>&1; then
     COMPOSE_FILES+=(-f docker-compose.gpu.yml)
     echo "NVIDIA-GPU erkannt: Ollama wird mit GPU gestartet."
   else
