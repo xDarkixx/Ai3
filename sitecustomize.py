@@ -43,5 +43,9 @@ try:
     from app.ddos_protection import install as install_ddos_protection
     install_chat_security(app)
     install_ddos_protection(app)
+
+    # Encrypt personally identifiable registration/profile data at rest.
+    from app.user_profile import install as install_user_profile
+    install_user_profile(app)
 except Exception:
     pass
