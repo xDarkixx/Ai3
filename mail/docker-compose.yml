@@ -3,31 +3,19 @@ services:
     image: analogic/poste.io:latest
     restart: unless-stopped
     hostname: mail.${AI3_DOMAIN:-localhost}
+    network_mode: host
     environment:
       TZ: ${TZ:-Europe/Berlin}
       HTTPS: OFF
-    ports:
-      - "25:25"
-      - "465:465"
-      - "587:587"
-      - "110:110"
-      - "143:143"
-      - "993:993"
-      - "995:995"
-      - "4190:4190"
+      HTTP_PORT: 8081
     volumes:
       - poste-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8081/ >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-    networks:
-      - ai3-public
+      start_period: 60s
 
 volumes:
   poste-data:
-
-networks:
-  ai3-public:
-    external: true
