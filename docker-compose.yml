@@ -15,6 +15,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    networks:
+      - ai3-public
+      - default
 
   ollama:
     image: ollama/ollama:latest
@@ -98,3 +101,7 @@ volumes:
   ollama-data:
   caddy-data:
   caddy-config:
+
+networks:
+  ai3-public:
+    name: ai3-public
