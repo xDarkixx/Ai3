@@ -50,7 +50,12 @@ ADMIN_KEY="$(grep '^AI3_ADMIN_KEY=' .env | cut -d= -f2-)"
 MODEL="$(grep '^AI3_MODEL=' .env | cut -d= -f2-)"
 
 COMPOSE_FILES=(-f docker-compose.yml)
-if [ -f docker-compose.gpu.yml ] && command -v nvidia-smi >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+if [ "${AI3_USE_GPU:-}" = "1" ]; then
+  COMPOSE_FILES+=(-f docker-compose.gpu.yml)
+  echo "GPU-Modus vom Installer ausgewählt."
+elif [ "${AI3_USE_GPU:-}" = "0" ]; then
+  echo "CPU-Modus vom Installer ausgewählt."
+elif [ -f docker-compose.gpu.yml ] && command -v nvidia-smi >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   if docker run --rm --gpus all nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi >/dev/null 2>&1; then
     COMPOSE_FILES+=(-f docker-compose.gpu.yml)
     echo "NVIDIA-GPU erkannt: Ollama wird mit GPU gestartet."
@@ -80,10 +85,12 @@ mkdir -p openclaw
 
 echo
 echo "Erstelle den Standard-Agenten ..."
-curl -fsS -X POST http://localhost:8080/v1/principals \
+if ! curl -fsS -X POST http://localhost:8080/v1/principals \
   -H "X-AI3-Admin-Key: $ADMIN_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"name":"assistant-01","kind":"agent"}' >/dev/null || true
+  -d '{"name":"assistant-01","kind":"agent"}' >/dev/null; then
+  echo "Agent existiert bereits oder konnte nicht neu erstellt werden; fahre fort."
+fi
 
 TOKEN_JSON="$(curl -fsS -X POST http://localhost:8080/v1/tokens \
   -H "X-AI3-Admin-Key: $ADMIN_KEY" \
