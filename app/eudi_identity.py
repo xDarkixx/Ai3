@@ -68,10 +68,9 @@ def install(app: FastAPI):
         tx = result.get("transaction_id")
         if not tx:
             raise HTTPException(502, "EUDI verifier returned no transaction")
+        # The verifier is configured with the same public base URL. Its returned
+        # request_uri therefore already contains the correct public /eudi path.
         request_uri = result.get("request_uri") or result.get("authorization_request_uri")
-        if request_uri and PUBLIC_URL:
-            # The verifier must be reverse-proxied below the configured public URL.
-            request_uri = PUBLIC_URL + "/wallet/" + quote(request_uri.rsplit("/", 1)[-1], safe="")
         return {
             "ok": True,
             "transaction_id": tx,
