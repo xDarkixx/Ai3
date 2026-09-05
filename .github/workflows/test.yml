@@ -20,9 +20,48 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+      - name: Validate shell scripts
+        run: |
+          bash -n scripts/*.sh
+      - name: Validate network metadata contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          compose = Path('docker-compose.yml').read_text()
+          caddy = Path('Caddyfile').read_text()
+          refresh = Path('scripts/network-refresh.sh').read_text()
+          branding = Path('web/branding.js').read_text()
+          assert 'AI3_LAN_HOSTNAME: ${AI3_LAN_HOSTNAME:-localhost}' in compose
+          assert 'AI3_LAN_IP: ${AI3_LAN_IP:-127.0.0.1}' in compose
+          assert './runtime:/runtime:ro' in compose
+          assert '/__ai3/network-info.json' in caddy
+          assert 'lan-info.json' in refresh
+          assert 'router_changes_automatic' in refresh
+          assert '/__ai3/network-info.json' in branding
+          sample = {
+              'hostname': 'AI3-PC', 'ip': '192.168.1.20', 'interface': 'enp1s0',
+              'gateway': '192.168.1.1', 'updated_at': '2026-01-01T00:00:00Z',
+              'router_target': {'tcp': [80, 443]}, 'automatic_lan_refresh': True,
+              'router_changes_automatic': False,
+          }
+          encoded = json.dumps(sample)
+          assert 'AI3_ADMIN_KEY' not in encoded
+          assert 'AI3_ADMIN_PASSWORD' not in encoded
+          print('network metadata contract: OK')
+          PY
       - name: Validate Docker Compose files
         run: |
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml -f docker-compose.gpu.yml config -q
+      - name: Validate Caddy configuration
+        run: |
+          docker run --rm \
+            -e AI3_DOMAIN=localhost \
+            -e AI3_LAN_HOSTNAME=ai3-ci \
+            -e AI3_LAN_IP=127.0.0.1 \
+            -e AI3_TLS_EMAIL= \
+            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
       - name: Run tests
         run: python -m pytest -q
