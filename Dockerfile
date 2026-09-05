@@ -5,6 +5,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY api_server.py ./api_server.py
 COPY web ./web
+COPY sitecustomize.py ./sitecustomize.py
 ENV AI3_DB=/data/ai3.db
+ENV AI3_ENABLE_ADVANCED_SECURITY=1
 EXPOSE 8080 8090
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
