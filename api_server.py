@@ -6,13 +6,15 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 DB_PATH = os.getenv("AI3_DB", "/data/ai3.db")
 ADMIN_KEY = os.getenv("AI3_ADMIN_KEY", "")
 OLLAMA_URL = os.getenv("AI3_OLLAMA_URL", "http://ollama:11434")
 
-api = FastAPI(title="AI3 API Server", version="1.0.0")
+api = FastAPI(title="AI3 API Server", version="1.1.0")
+api.add_middleware(CORSMiddleware, allow_origins=os.getenv("AI3_CORS_ORIGINS", "*").split(","), allow_credentials=False, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "X-AI3-Admin-Key"])
 
 
 def now():
@@ -28,19 +30,8 @@ def db():
 def init_db():
     with db() as con:
         con.executescript("""
-        CREATE TABLE IF NOT EXISTS models (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            status TEXT NOT NULL DEFAULT 'unknown',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS api_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            endpoint TEXT NOT NULL,
-            status_code INTEGER NOT NULL,
-            created_at TEXT NOT NULL
-        );
+        CREATE TABLE IF NOT EXISTS models (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'unknown', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS api_events (id INTEGER PRIMARY KEY AUTOINCREMENT, endpoint TEXT NOT NULL, status_code INTEGER NOT NULL, created_at TEXT NOT NULL);
         """)
 
 
@@ -60,11 +51,12 @@ def token_ok(authorization: str | None):
         raise HTTPException(401, "Bearer token required")
     raw = authorization[7:].strip()
     with db() as con:
-        row = con.execute("SELECT active,expires_at,scopes FROM tokens WHERE token_hash=?", (hashlib.sha256(raw.encode()).hexdigest(),)).fetchone()
-    if not row or not row["active"] or (row["expires_at"] and row["expires_at"] <= now()):
-        raise HTTPException(401, "invalid or expired token")
-    if "ai:inference" not in row["scopes"].split(",") and "admin" not in row["scopes"].split(","):
-        raise HTTPException(403, "missing scope: ai:inference")
+        row = con.execute("SELECT id,active,expires_at,scopes FROM tokens WHERE token_hash=?", (hashlib.sha256(raw.encode()).hexdigest(),)).fetchone()
+        if not row or not row["active"] or (row["expires_at"] and row["expires_at"] <= now()):
+            raise HTTPException(401, "invalid or expired token")
+        if "ai:inference" not in row["scopes"].split(",") and "admin" not in row["scopes"].split(","):
+            raise HTTPException(403, "missing scope: ai:inference")
+        con.execute("UPDATE tokens SET last_used_at=? WHERE id=?", (now(), row["id"]))
 
 
 class PullRequest(BaseModel):
