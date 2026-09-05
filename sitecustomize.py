@@ -37,15 +37,16 @@ try:
         user_accounts.install(app)
         install_rate_limit(app)
 
-    # Defense in depth: encrypt stored chat history and add bounded application-layer
-    # DDoS/abuse protection. These never log or store raw bearer tokens.
     from app.chat_security import install as install_chat_security
     from app.ddos_protection import install as install_ddos_protection
     install_chat_security(app)
     install_ddos_protection(app)
 
-    # Encrypt personally identifiable registration/profile data at rest.
     from app.user_profile import install as install_user_profile
     install_user_profile(app)
+
+    # Account recovery, email verification and real-provider identity-proofing adapter.
+    from app.account_security import install as install_account_security
+    install_account_security(app)
 except Exception:
     pass
