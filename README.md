@@ -21,7 +21,7 @@ Client / OpenClaw / Open WebUI / Bot / App
                  Modell
 ```
 
-Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Token. Dadurch muss kein gemeinsamer Admin-Schlüssel verteilt werden. OpenClaw unterstützt genau solche benutzerdefinierten OpenAI-kompatiblen Provider mit `baseUrl`, API-Key und `openai-completions`. citeturn0search0turn0search4
+Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Token. Dadurch muss kein gemeinsamer Admin-Schlüssel verteilt werden. OpenClaw unterstützt solche benutzerdefinierten OpenAI-kompatiblen Provider mit `baseUrl`, API-Key und `openai-completions`. citeturn0search0turn0search4
 
 ## Was AI3 kann
 
@@ -43,7 +43,47 @@ Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Toke
 - Live-Limits und Quoten
 - modernes responsives Command-Center-Design
 - Copyright-/Rechtshinweise direkt in der Oberfläche
-- HTTPS-Deployment mit einem kostenlosen Let's-Encrypt-Zertifikat möglich
+- optionales NVIDIA-GPU-Passthrough für Ollama
+
+## One-Click-Installation
+
+### Ubuntu / Debian mit Docker Engine
+
+Der Installer richtet die benötigten Systemkomponenten ein, darunter Docker Engine, Docker Compose Plugin, Git, Python und die benötigten Werkzeuge. Wenn `nvidia-smi` verfügbar ist, richtet er zusätzlich das NVIDIA Container Toolkit ein und verwendet die GPU für Ollama, sofern Docker-GPU-Zugriff erfolgreich getestet werden kann. Die Docker- und NVIDIA-Schritte folgen den offiziellen Installationswegen. citeturn0search6turn1search0
+
+```bash
+chmod +x scripts/install-ubuntu.sh
+./scripts/install-ubuntu.sh
+```
+
+Danach laufen AI3 und Ollama als Docker-Stack. Das lokale Modell aus `AI3_MODEL` wird automatisch geladen. Docker Compose ist genau für das gemeinsame Starten mehrerer Services und persistenter Volumes ausgelegt. citeturn0search4turn0search7
+
+### Windows
+
+Docker Desktop muss installiert und gestartet sein. Danach in PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\install-windows.ps1
+```
+
+Der Windows-Installer erstellt `.env`, startet den Stack, wartet auf den Health-Endpunkt, erzeugt einen Agenten und schreibt die OpenClaw-Konfiguration.
+
+### Ergebnis
+
+Nach der Installation gibt es automatisch:
+
+- AI3 Gateway unter `http://localhost:8080`
+- Ollama mit persistentem Modell-Speicher
+- sicheren Admin-Key und Admin-Passwort in `.env`
+- einen initialen `assistant-01` Agenten
+- einen AI3 Bearer-Token für den initialen Agenten
+- `openclaw/ai3-provider.generated.json5`
+- persistente Docker-Volumes für AI3-Daten und Modelle
+
+**Geheimnisse niemals committen:** `.env` und die generierte OpenClaw-Datei bleiben per `.gitignore` außerhalb von Git.
+
+Für einen öffentlichen Server sollten zusätzlich TLS/Reverse-Proxy, Firewall und ein strenges Rate-Limit eingerichtet werden. Ein kostenloses Let's-Encrypt-Zertifikat ist möglich.
 
 ## Lokale oder kostenpflichtige Modelle
 
@@ -57,7 +97,7 @@ AI3_LLM_API_KEY=DEIN_PROVIDER_KEY
 AI3_LLM_TIMEOUT=300
 ```
 
-Damit bleiben die AI3-Client-Tokens von den geheimen Upstream-Zugangsdaten getrennt. **Der externe Provider-Key gehört nur auf den AI3-Server und darf niemals an Nutzer/Agents weitergegeben werden.** OpenClaw kann AI3 anschließend als eigenen OpenAI-kompatiblen Provider verwenden. citeturn0search0turn0search3
+Der externe Provider-Key bleibt ausschließlich auf dem AI3-Server und wird nicht an Nutzer/Agents weitergegeben. OpenClaw kann AI3 anschließend als eigenen OpenAI-kompatiblen Provider verwenden. citeturn0search0turn0search3
 
 ## Limits und „unbegrenzt"
 
@@ -82,7 +122,7 @@ AI3 kann vollständig lokal mit Open-Source-Modellen betrieben werden, sodass ke
 
 Bei einem externen kostenpflichtigen Upstream entstehen zusätzlich dessen normale Nutzungsgebühren. AI3 selbst benötigt dafür keinen separaten SaaS-Abrechnungsdienst.
 
-## Schnellstart
+## Manuelle Schnellstart-Alternative
 
 ```bash
 chmod +x scripts/setup-local.sh
@@ -123,48 +163,4 @@ Standardmäßig wird `llama3.2:3b` geladen. Weboberfläche und API sind anschlie
 }
 ```
 
-OpenClaw dokumentiert benutzerdefinierte Provider und lokale OpenAI-kompatible Backends offiziell. citeturn0search0turn0search10
-
-## OAuth2-artige Tokenverwaltung
-
-- `POST /v1/admin/oauth/clients` — OAuth-Client anlegen
-- `POST /oauth/token` — `client_credentials` oder `refresh_token`
-- `POST /oauth/revoke` — Token widerrufen
-- `GET /v1/admin/oauth/clients` — Clients verwalten
-- `DELETE /v1/admin/oauth/clients/{client_id}` — Client deaktivieren
-
-Access Tokens sind standardmäßig 15 Minuten gültig; Refresh Tokens 30 Tage und werden bei Verwendung rotiert.
-
-## Backups
-
-```text
-POST /v1/admin/backup
-GET  /v1/admin/backups
-```
-
-Backups landen standardmäßig unter `/data/backups` im persistenten AI3-Datenvolume.
-
-## Sicherheit für Internetbetrieb
-
-1. Nur AI3 `:8080` über HTTPS veröffentlichen.
-2. `:8090` niemals öffentlich freigeben.
-3. Ollama niemals öffentlich freigeben.
-4. Pro Nutzer/Agent einen eigenen Token verwenden.
-5. Minimale Scopes vergeben.
-6. Rate-Limit und Tagesquota aktivieren.
-7. Secrets niemals committen.
-8. Backups nicht über die Weboberfläche öffentlich ausliefern.
-9. Für echte öffentliche Angebote die rechtlichen Hinweise an den konkreten Betreiber anpassen.
-
-## Lizenz- und Drittanbieterhinweise
-
-Drittanbieter-Software, Modelle und Datensätze behalten ihre jeweiligen Lizenzen. Vor Weitergabe oder kommerzieller Nutzung sind diese separat zu prüfen.
-
-## Tests
-
-```bash
-python -m pip install -r requirements.txt
-python -m pytest -q
-```
-
-Die Tests prüfen jetzt Passwort-Hashing, getrennte Nutzer-/Token-Identitäten, Token-Widerruf, Health/API-Oberfläche und die Unlimited-Limit-Grundeinstellung. Vor einer öffentlichen Freigabe sollte zusätzlich ein echter Docker-Smoke-Test mit Ollama und – bei Nutzung eines externen Anbieters – ein Upstream-Test durchgeführt werden.
+OpenClaw verbindet sich damit direkt mit AI3; der Nutzer benötigt keinen eigenen externen KI-API-Key, solange AI3 lokal inferiert. citeturn0search0turn0search2
