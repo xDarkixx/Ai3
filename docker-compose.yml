@@ -7,6 +7,12 @@ services:
     environment:
       AI3_DB: /data/ai3.db
       AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
+      # Optional: local OpenAI-compatible backend (Ollama, vLLM, llama.cpp, etc.)
+      AI3_LLM_BASE_URL: ${AI3_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      AI3_LLM_API_KEY: ${AI3_LLM_API_KEY:-}
+      AI3_LLM_TIMEOUT: ${AI3_LLM_TIMEOUT:-300}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ai3-data:/data
 
