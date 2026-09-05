@@ -18,8 +18,9 @@ TOKEN_PREFIX = "ai3_"
 LLM_BASE_URL = os.getenv("AI3_LLM_BASE_URL", "").rstrip("/")
 LLM_API_KEY = os.getenv("AI3_LLM_API_KEY", "")
 LLM_TIMEOUT = float(os.getenv("AI3_LLM_TIMEOUT", "300"))
+OLLAMA_URL = os.getenv("AI3_OLLAMA_URL", "http://ollama:11434").rstrip("/")
 
-app = FastAPI(title="AI3 Token Server", version="2.1.0")
+app = FastAPI(title="AI3 Token Server", version="2.2.0")
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
@@ -84,6 +85,10 @@ class TokenCreate(BaseModel):
     name: str = Field(default="default", min_length=1, max_length=100)
     scopes: list[str] = Field(default_factory=lambda: ["ai:inference"])
     expires_at: Optional[str] = None
+
+
+class ModelPull(BaseModel):
+    name: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/-]+$")
 
 
 def require_admin(x_ai3_admin_key: Optional[str] = Header(default=None)):
@@ -191,6 +196,30 @@ async def admin_models():
     if response.status_code >= 400:
         raise HTTPException(response.status_code, response.text[:1000])
     return response.json()
+
+
+@app.get("/v1/admin/local-models", dependencies=[Depends(require_admin)])
+async def admin_local_models():
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(f"{OLLAMA_URL}/api/tags")
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text[:1000])
+    return response.json()
+
+
+@app.post("/v1/admin/local-models/pull", dependencies=[Depends(require_admin)])
+async def admin_pull_model(body: ModelPull):
+    async with httpx.AsyncClient(timeout=None) as client:
+        response = await client.post(f"{OLLAMA_URL}/api/pull", json={"name": body.name, "stream": False})
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text[:1000])
+    return {"ok": True, "model": body.name, "status": "ready", "ollama": response.json()}
+
+
+@app.get("/v1/admin/status", dependencies=[Depends(require_admin)])
+async def admin_status():
+    local = await admin_local_models()
+    return {"service": "AI3", "version": app.version, "gateway": "online", "local_models": len(local.get("models", [])), "llm_configured": bool(LLM_BASE_URL)}
 
 
 @app.get("/v1/me")
