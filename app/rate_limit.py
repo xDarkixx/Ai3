@@ -9,14 +9,28 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 DB_PATH = os.getenv("AI3_DB", "/data/ai3.db")
-RATE_LIMIT_RPM = int(os.getenv("AI3_RATE_LIMIT_RPM", "120"))
+RATE_LIMIT_RPM = int(os.getenv("AI3_RATE_LIMIT_RPM", "0"))
 DAILY_REQUEST_LIMIT = int(os.getenv("AI3_DAILY_REQUEST_LIMIT", "0"))
 
 _windows: dict[str, deque[float]] = defaultdict(deque)
 
 
+def _runtime_limits():
+    values = {"rate_limit_rpm": RATE_LIMIT_RPM, "daily_request_limit": DAILY_REQUEST_LIMIT}
+    try:
+        con = sqlite3.connect(DB_PATH)
+        try:
+            rows = con.execute("SELECT name,value FROM runtime_limits WHERE name IN ('rate_limit_rpm','daily_request_limit')").fetchall()
+            values.update({str(k): int(v) for k, v in rows})
+        finally:
+            con.close()
+    except Exception:
+        pass
+    return values
+
+
 def _daily_count(raw_token: str) -> int:
-    if DAILY_REQUEST_LIMIT <= 0 or not raw_token:
+    if not raw_token:
         return 0
     try:
         con = sqlite3.connect(DB_PATH)
@@ -39,6 +53,9 @@ def install(app: FastAPI):
     async def rate_limit(request: Request, call_next):
         if not request.url.path.startswith("/v1/"):
             return await call_next(request)
+        limits = _runtime_limits()
+        rpm = limits["rate_limit_rpm"]
+        daily = limits["daily_request_limit"]
         authorization = request.headers.get("authorization", "")
         raw_token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
         identity = raw_token or (request.client.host if request.client else "anonymous")
@@ -48,9 +65,9 @@ def install(app: FastAPI):
         cutoff = now_mono - 60
         while bucket and bucket[0] <= cutoff:
             bucket.popleft()
-        if RATE_LIMIT_RPM > 0 and len(bucket) >= RATE_LIMIT_RPM:
+        if rpm > 0 and len(bucket) >= rpm:
             return JSONResponse({"error": {"message": "rate limit exceeded", "type": "rate_limit_error"}}, status_code=429, headers={"Retry-After": "60"})
-        if raw_token and DAILY_REQUEST_LIMIT > 0 and _daily_count(raw_token) >= DAILY_REQUEST_LIMIT:
+        if raw_token and daily > 0 and _daily_count(raw_token) >= daily:
             return JSONResponse({"error": {"message": "daily request quota exceeded", "type": "quota_error"}}, status_code=429, headers={"Retry-After": "3600"})
         bucket.append(now_mono)
         return await call_next(request)
