@@ -6,3 +6,8 @@
     encode zstd gzip
     reverse_proxy ai3-token-server:8080
 }
+
+mail.{$AI3_DOMAIN:localhost} {
+    encode zstd gzip
+    reverse_proxy poste-mail:80
+}
