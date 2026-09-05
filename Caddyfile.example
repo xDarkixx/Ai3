@@ -1,0 +1,8 @@
+# Public HTTPS reverse proxy for AI3.
+# Copy to Caddyfile and replace the hostname.
+# Caddy obtains and renews a free Let's Encrypt certificate automatically.
+
+ai.example.com {
+    reverse_proxy ai3-token-server:8080
+    encode gzip
+}
