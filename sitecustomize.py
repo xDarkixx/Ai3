@@ -45,8 +45,11 @@ try:
     from app.user_profile import install as install_user_profile
     install_user_profile(app)
 
-    # Account recovery, email verification and real-provider identity-proofing adapter.
     from app.account_security import install as install_account_security
     install_account_security(app)
+
+    # German Online-Ausweis/AusweisApp integration helper.
+    from app.german_eid import install as install_german_eid
+    install_german_eid(app)
 except Exception:
     pass
