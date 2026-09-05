@@ -1,0 +1,8 @@
+{
+    email {$AI3_TLS_EMAIL:}
+}
+
+{$AI3_DOMAIN:localhost} {
+    encode zstd gzip
+    reverse_proxy ai3-token-server:8080
+}
