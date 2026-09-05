@@ -6,6 +6,9 @@ AI3 ist ein selbst gehosteter Gateway für lokale KI-Modelle, KI-Agenten und Ope
 
 - OpenAI-kompatible `/v1` API für Chat, Models, Responses und Embeddings
 - eigene `ai3_...` API-Tokens mit Scopes und Ablaufzeiten
+- kurzlebige OAuth2-artige Access Tokens und rotierende Refresh Tokens
+- OAuth-Clients mit eigenem Client-ID/Secret
+- Revocation und Security-Event-Protokoll
 - Benutzer, Agents und Services als eigene Identitäten
 - Agent-Konfiguration mit Modell und Backend
 - lokale Modelle über Ollama
@@ -15,6 +18,7 @@ AI3 ist ein selbst gehosteter Gateway für lokale KI-Modelle, KI-Agenten und Ope
 - OpenClaw-, Open WebUI- und Python/OpenAI-SDK-Verbindungsbeispiele
 - automatische Modellinitialisierung beim Docker-Start
 - SQLite ohne externe Datenbank
+- Admin-Datenbank-Backups über SQLite Online Backup
 - HTTPS-Deployment kann mit kostenloser Let's-Encrypt-Zertifikatsausstellung erfolgen
 
 ## Architektur
@@ -87,7 +91,7 @@ AI3 stellt diese zentrale Kompatibilitätsfläche bereit:
 - `POST /v1/responses`
 - `POST /v1/embeddings`
 
-Diese Auswahl entspricht der wichtigen OpenAI-kompatiblen Oberfläche, die aktuelle Agent-/WebUI-Integrationen nutzen. citeturn0search1turn0search4
+Diese Oberfläche passt zu aktuellen OpenClaw-Custom-Provider-Konfigurationen mit `baseUrl`, Bearer-Key und `openai-completions`. citeturn0search0turn0search4
 
 Beispiel:
 
@@ -116,7 +120,7 @@ print(result.choices[0].message.content)
 
 ## OpenClaw
 
-OpenClaw unterstützt eine OpenAI-kompatible Gateway-Oberfläche mit `/v1/models`, `/v1/chat/completions`, `/v1/embeddings` und `/v1/responses`. Eigene Provider können über eine Base-URL und einen Bearer-Key eingebunden werden. citeturn0search1turn0search3
+OpenClaw unterstützt benutzerdefinierte Provider mit Base-URL, API-Key und OpenAI-Kompatibilität. Für lokale oder selbst gehostete `/v1`-Backends ist `openai-completions` der passende Adapter. citeturn0search0turn0search6
 
 AI3 stellt dafür eine Vorlage bereit:
 
@@ -143,9 +147,37 @@ Beispielprinzip:
 }
 ```
 
+## OAuth2-artige Tokenverwaltung
+
+Zusätzlich zu den direkten `ai3_...` API-Tokens besitzt AI3 jetzt einen eigenen OAuth2-artigen Tokenfluss für Maschinen und Agenten:
+
+- `POST /v1/admin/oauth/clients` — OAuth-Client anlegen
+- `POST /oauth/token` — `client_credentials` oder `refresh_token`
+- `POST /oauth/revoke` — Access-/Refresh-Token widerrufen
+- `GET /v1/admin/oauth/clients` — Clients verwalten
+- `DELETE /v1/admin/oauth/clients/{client_id}` — Client deaktivieren
+- `GET /v1/admin/security/events` — Security-Aktivitäten prüfen
+
+Access Tokens sind standardmäßig 15 Minuten gültig. Refresh Tokens sind standardmäßig 30 Tage gültig und werden bei jeder Verwendung rotiert; das alte Refresh Token wird sofort ungültig. Diese Rotation entspricht einer empfohlenen Schutzmaßnahme gegen Replay von Refresh Tokens. citeturn0search2
+
+Die Tokenwerte werden nur bei Ausstellung ausgegeben; in SQLite werden Hashwerte gespeichert. Für OpenClaw kann weiterhin direkt ein AI3-Bearer-Key als Custom Provider verwendet werden, was OpenClaw offiziell für benutzerdefinierte OpenAI-kompatible Provider unterstützt. citeturn0search0
+
+## Backups
+
+Admin-only:
+
+```text
+POST /v1/admin/backup
+GET  /v1/admin/backups
+```
+
+Die Sicherung verwendet SQLite Online Backup und landet standardmäßig unter `/data/backups`. Der Ordner gehört zum persistenten `ai3-data`-Volume.
+
+Für zusätzliche externe Sicherungen sollte `/data/backups` regelmäßig auf ein anderes Speichermedium kopiert werden.
+
 ## Open WebUI
 
-Open WebUI kann OpenAI-kompatible Server als Provider verwenden. Dadurch kann AI3 als eigene Backend-URL vor Open WebUI stehen. citeturn0search0
+Open WebUI kann OpenAI-kompatible Server als Provider verwenden. Dadurch kann AI3 als eigene Backend-URL vor Open WebUI stehen.
 
 ```text
 URL:      https://DEIN-AI3-HOST/v1
@@ -186,12 +218,13 @@ Für einen öffentlichen AI3-Server:
 6. pro Agent eigene Tokens mit minimalen Scopes erzeugen
 7. Rate-Limiting und Firewall aktivieren
 8. keine Secrets in Git committen
+9. Backups nicht öffentlich ausliefern und regelmäßig extern sichern
 
 Ein eigener Domainname ist praktisch, aber nicht zwingend für das Protokoll. Die tatsächlichen Kosten hängen von Hardware, Strom, Internetanschluss und einer eventuell verwendeten Domain ab. Für die KI selbst ist im lokalen Betrieb kein bezahlter KI-API-Dienst erforderlich.
 
 ## Backend-Strategie
 
-**Ollama** ist der Standard, weil es lokal einfach zu betreiben ist. Für leistungsfähigere GPUs kann später ein OpenAI-kompatibler **vLLM**-Server als Backend verwendet werden; vLLM stellt ebenfalls einen OpenAI-kompatiblen HTTP-Server bereit. citeturn0search6
+**Ollama** ist der Standard, weil es lokal einfach zu betreiben ist. Für leistungsfähigere GPUs kann später ein OpenAI-kompatibler **vLLM**-Server als Backend verwendet werden; vLLM stellt ebenfalls einen OpenAI-kompatiblen HTTP-Server bereit. citeturn0search9
 
 Die AI3-API bleibt dabei gleich:
 
@@ -214,4 +247,4 @@ Die GitHub-Actions-Pipeline testet die Python-Anwendung automatisch. Zusätzlich
 
 AI3 speichert Tokenwerte nicht im Klartext, sondern als Hash. Der vollständige Token wird nur bei der Erstellung ausgegeben. Der Admin-Key ist ausschließlich für Verwaltung gedacht und darf nicht als Client-API-Key verwendet werden.
 
-Für öffentlich erreichbare Installationen gilt: **HTTPS + Firewall + Rate-Limit + minimale Token-Scopes**. OpenAI-kompatible Agent-Gateways können weitreichende Fähigkeiten bereitstellen; deshalb sollte ein Internet-Gateway niemals ohne Authentifizierung veröffentlicht werden. Aktuelle OpenClaw-Dokumentation weist ebenfalls ausdrücklich auf die Bedeutung der Authentifizierungsgrenze hin. citeturn0search1
+Für öffentlich erreichbare Installationen gilt: **HTTPS + Firewall + Rate-Limit + minimale Token-Scopes**. OpenAI-kompatible Agent-Gateways können weitreichende Fähigkeiten bereitstellen; deshalb sollte ein Internet-Gateway niemals ohne Authentifizierung veröffentlicht werden. Bearer Tokens sollten auf eine konkrete Zielressource begrenzt werden; für langlebige Refresh Tokens ist Rotation eine empfohlene Schutzmaßnahme. citeturn0search2
