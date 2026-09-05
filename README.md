@@ -1,11 +1,11 @@
 # AI3 — eigener Token-Server für KI & KI-Agenten
 
-AI3 enthält jetzt einen kleinen, selbst gehosteten Authentifizierungsdienst für KI-Anwendungen und Agenten.
+AI3 ist ein kleiner, selbst gehosteter Authentifizierungsdienst für KI-Anwendungen und KI-Agenten. Der Server benötigt für Tokenverwaltung und Authentifizierung keinen kostenpflichtigen Cloud-Dienst und keine externe Datenbank.
 
 ## Funktionen
 
 - Eigene opaque API-Tokens mit `ai3_`-Prefix
-- Token werden nur als SHA-256-Hash gespeichert
+- Tokens werden nur als SHA-256-Hash gespeichert
 - Benutzer, KI-Agenten und Services als Principals
 - Scopes pro Token
 - Token-Ablauf und Widerruf
@@ -13,6 +13,13 @@ AI3 enthält jetzt einen kleinen, selbst gehosteten Authentifizierungsdienst fü
 - geschützte Agenten-API
 - SQLite ohne externen Datenbankdienst
 - Docker/Ubuntu-freundlich
+- automatisierte Tests mit pytest und GitHub Actions
+
+## Kosten
+
+Der Token-Server selbst verwendet nur Open-Source-Komponenten und ruft keinen kostenpflichtigen KI- oder Zahlungsdienst auf. Bei lokalem Betrieb entstehen daher keine API-Kosten für den Token-Server.
+
+Wichtig: Ein gemieteter VPS, Strom, Internetzugang oder eine separat angebundene kostenpflichtige KI-API kann natürlich eigene Kosten verursachen. AI3 selbst erzwingt keine solchen Dienste.
 
 ## Start mit Docker
 
@@ -54,6 +61,17 @@ Identität testen:
 curl http://localhost:8080/v1/me \
   -H "Authorization: Bearer DEIN_AI3_TOKEN"
 ```
+
+## Tests
+
+Lokal:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pytest -q
+```
+
+Der Workflow `.github/workflows/test.yml` führt die Tests bei Pushes auf `main` und bei Pull Requests automatisch aus.
 
 ## Architektur
 
