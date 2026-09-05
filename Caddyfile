@@ -4,6 +4,14 @@
 
 {$AI3_DOMAIN:localhost}, {$AI3_LAN_HOSTNAME:localhost}, {$AI3_LAN_IP:127.0.0.1} {
     encode zstd gzip
+
+    @ai3Network path /__ai3/network-info.json
+    handle @ai3Network {
+        root * /runtime
+        header Cache-Control "no-store"
+        file_server
+    }
+
     reverse_proxy ai3-token-server:8080
 }
 
