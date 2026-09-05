@@ -3,7 +3,7 @@ import json
 import os
 import secrets
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -15,14 +15,19 @@ from pydantic import BaseModel, Field
 
 DB_PATH = os.getenv("AI3_DB", "/data/ai3.db")
 ADMIN_KEY = os.getenv("AI3_ADMIN_KEY", "")
+INITIAL_ADMIN_PASSWORD = os.getenv("AI3_ADMIN_PASSWORD", "")
 TOKEN_PREFIX = "ai3_"
+ADMIN_SESSION_PREFIX = "ai3_admin_"
 LLM_BASE_URL = os.getenv("AI3_LLM_BASE_URL", "").rstrip("/")
 LLM_API_KEY = os.getenv("AI3_LLM_API_KEY", "")
 LLM_TIMEOUT = float(os.getenv("AI3_LLM_TIMEOUT", "300"))
 OLLAMA_URL = os.getenv("AI3_OLLAMA_URL", "http://ollama:11434").rstrip("/")
+VLLM_URL = os.getenv("AI3_VLLM_URL", "").rstrip("/")
+LLAMACPP_URL = os.getenv("AI3_LLAMACPP_URL", "").rstrip("/")
 BACKEND = os.getenv("AI3_BACKEND", "ollama")
+ADMIN_SESSION_HOURS = int(os.getenv("AI3_ADMIN_SESSION_HOURS", "12"))
 
-app = FastAPI(title="AI3 Universal AI Gateway", version="3.0.0")
+app = FastAPI(title="AI3 Universal AI Gateway", version="3.1.0")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
 
@@ -38,6 +43,28 @@ def db():
     return con
 
 
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    n, r, p = 131072, 8, 1
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=32)
+    return f"scrypt${n}${r}${p}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        algo, n, r, p, salt_hex, digest_hex = encoded.split("$", 5)
+        if algo != "scrypt":
+            return False
+        digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=int(n), r=int(r), p=int(p), dklen=32)
+        return secrets.compare_digest(digest.hex(), digest_hex)
+    except (ValueError, TypeError):
+        return False
+
+
 def init_db():
     with db() as con:
         con.executescript("""
@@ -48,7 +75,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS agent_configs (principal_id INTEGER PRIMARY KEY, model TEXT, backend TEXT NOT NULL DEFAULT 'ollama', system_prompt TEXT, updated_at TEXT NOT NULL, FOREIGN KEY(principal_id) REFERENCES principals(id));
         CREATE TABLE IF NOT EXISTS usage_events (id INTEGER PRIMARY KEY AUTOINCREMENT, endpoint TEXT NOT NULL, principal_id INTEGER, status_code INTEGER NOT NULL, duration_ms INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, FOREIGN KEY(principal_id) REFERENCES principals(id));
         CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_events(created_at);
+        CREATE TABLE IF NOT EXISTS admin_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS admin_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
+        CREATE INDEX IF NOT EXISTS idx_admin_sessions_hash ON admin_sessions(token_hash);
         """)
+        if INITIAL_ADMIN_PASSWORD:
+            exists = con.execute("SELECT 1 FROM admin_settings WHERE name='password_hash'").fetchone()
+            if not exists:
+                con.execute("INSERT INTO admin_settings(name,value,updated_at) VALUES('password_hash',?,?)", (hash_password(INITIAL_ADMIN_PASSWORD), now()))
 
 
 @app.on_event("startup")
@@ -66,7 +100,7 @@ async def usage_middleware(request: Request, call_next):
         raw = auth[7:].strip()
         try:
             with db() as con:
-                row = con.execute("SELECT principal_id FROM tokens WHERE token_hash=?", (hashlib.sha256(raw.encode()).hexdigest(),)).fetchone()
+                row = con.execute("SELECT principal_id FROM tokens WHERE token_hash=?", (hash_token(raw),)).fetchone()
                 principal_id = row[0] if row else None
         except Exception:
             principal_id = None
@@ -106,13 +140,36 @@ class AgentConfig(BaseModel):
     system_prompt: Optional[str] = Field(default=None, max_length=12000)
 
 
-def require_admin(x_ai3_admin_key: Optional[str] = Header(default=None)):
-    if not ADMIN_KEY or not x_ai3_admin_key or not secrets.compare_digest(x_ai3_admin_key, ADMIN_KEY):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid admin key")
+class AdminLogin(BaseModel):
+    password: str = Field(min_length=8, max_length=256)
 
 
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
+class AdminPasswordChange(BaseModel):
+    current_password: Optional[str] = Field(default=None, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+class TokenRotate(BaseModel):
+    token_prefix: str = Field(min_length=4, max_length=32)
+
+
+def admin_session_valid(token: str) -> bool:
+    with db() as con:
+        row = con.execute("SELECT expires_at FROM admin_sessions WHERE token_hash=? AND active=1", (hash_token(token),)).fetchone()
+        if not row:
+            return False
+        if row["expires_at"] <= now():
+            con.execute("UPDATE admin_sessions SET active=0 WHERE token_hash=?", (hash_token(token),))
+            return False
+        return True
+
+
+def require_admin(x_ai3_admin_key: Optional[str] = Header(default=None), x_ai3_admin_session: Optional[str] = Header(default=None)):
+    if ADMIN_KEY and x_ai3_admin_key and secrets.compare_digest(x_ai3_admin_key, ADMIN_KEY):
+        return
+    if x_ai3_admin_session and x_ai3_admin_session.startswith(ADMIN_SESSION_PREFIX) and admin_session_valid(x_ai3_admin_session):
+        return
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid admin credentials")
 
 
 def get_principal(token: str):
@@ -160,6 +217,49 @@ def health():
     return {"status": "ok", "service": "ai3-gateway", "version": app.version, "time": now(), "llm_configured": bool(LLM_BASE_URL), "backend": BACKEND}
 
 
+@app.post("/v1/admin/login")
+def admin_login(body: AdminLogin):
+    with db() as con:
+        row = con.execute("SELECT value FROM admin_settings WHERE name='password_hash'").fetchone()
+    if not row or not verify_password(body.password, row["value"]):
+        raise HTTPException(401, "invalid admin password")
+    raw = ADMIN_SESSION_PREFIX + secrets.token_urlsafe(48)
+    expires = datetime.now(timezone.utc) + timedelta(hours=ADMIN_SESSION_HOURS)
+    with db() as con:
+        con.execute("INSERT INTO admin_sessions(token_hash,created_at,expires_at) VALUES(?,?,?)", (hash_token(raw), now(), expires.isoformat()))
+    return {"session": raw, "token_type": "Bearer", "expires_at": expires.isoformat(), "expires_in": ADMIN_SESSION_HOURS * 3600}
+
+
+@app.post("/v1/admin/logout", dependencies=[Depends(require_admin)])
+def admin_logout(x_ai3_admin_session: Optional[str] = Header(default=None)):
+    if x_ai3_admin_session:
+        with db() as con:
+            con.execute("UPDATE admin_sessions SET active=0 WHERE token_hash=?", (hash_token(x_ai3_admin_session),))
+    return {"ok": True}
+
+
+@app.get("/v1/admin/security", dependencies=[Depends(require_admin)])
+def admin_security():
+    with db() as con:
+        row = con.execute("SELECT 1 FROM admin_settings WHERE name='password_hash'").fetchone()
+        sessions = con.execute("SELECT COUNT(*) FROM admin_sessions WHERE active=1 AND expires_at>?", (now(),)).fetchone()[0]
+    return {"password_configured": bool(row), "password_hash": "scrypt", "active_admin_sessions": sessions, "api_key_bootstrap": bool(ADMIN_KEY), "token_format": "opaque-random-hash-at-rest", "recommended_session_hours": ADMIN_SESSION_HOURS}
+
+
+@app.post("/v1/admin/password", dependencies=[Depends(require_admin)])
+def change_admin_password(body: AdminPasswordChange, x_ai3_admin_session: Optional[str] = Header(default=None)):
+    with db() as con:
+        row = con.execute("SELECT value FROM admin_settings WHERE name='password_hash'").fetchone()
+        if row:
+            if not body.current_password or not verify_password(body.current_password, row["value"]):
+                raise HTTPException(401, "current admin password is required")
+        elif not ADMIN_KEY:
+            raise HTTPException(503, "no bootstrap admin credential configured")
+        con.execute("INSERT INTO admin_settings(name,value,updated_at) VALUES('password_hash',?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at", (hash_password(body.new_password), now()))
+        con.execute("UPDATE admin_sessions SET active=0 WHERE expires_at<=?", (now(),))
+    return {"ok": True, "message": "admin password changed"}
+
+
 @app.post("/v1/principals", dependencies=[Depends(require_admin)])
 def create_principal(body: PrincipalCreate):
     with db() as con:
@@ -182,6 +282,27 @@ def create_token(body: TokenCreate):
         return {"token": raw, "token_prefix": raw[:12], "principal": p["name"], "scopes": scopes, "expires_at": body.expires_at}
 
 
+@app.post("/v1/tokens/revoke", dependencies=[Depends(require_admin)])
+def revoke_token(token_prefix: str):
+    with db() as con:
+        cur = con.execute("UPDATE tokens SET active=0 WHERE prefix=? AND active=1", (token_prefix,))
+    if cur.rowcount == 0:
+        raise HTTPException(404, "active token not found")
+    return {"ok": True, "token_prefix": token_prefix, "status": "revoked"}
+
+
+@app.post("/v1/tokens/rotate", dependencies=[Depends(require_admin)])
+def rotate_token(body: TokenRotate):
+    with db() as con:
+        old = con.execute("SELECT t.*,p.name AS principal FROM tokens t JOIN principals p ON p.id=t.principal_id WHERE t.prefix=? AND t.active=1", (body.token_prefix,)).fetchone()
+        if not old:
+            raise HTTPException(404, "active token not found")
+        raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
+        con.execute("UPDATE tokens SET active=0 WHERE id=?", (old["id"],))
+        con.execute("INSERT INTO tokens(principal_id,token_hash,prefix,name,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?)", (old["principal_id"], hash_token(raw), raw[:12], old["name"], old["scopes"], now(), old["expires_at"]))
+    return {"token": raw, "token_prefix": raw[:12], "principal": old["principal"], "scopes": old["scopes"].split(",") if old["scopes"] else [], "expires_at": old["expires_at"]}
+
+
 @app.get("/v1/admin/principals", dependencies=[Depends(require_admin)])
 def admin_principals():
     with db() as con:
@@ -194,6 +315,38 @@ def admin_tokens():
     with db() as con:
         rows = con.execute("SELECT t.prefix,t.name,t.scopes,t.created_at,t.last_used_at,t.expires_at,t.active,p.name AS principal FROM tokens t JOIN principals p ON p.id=t.principal_id ORDER BY t.id DESC").fetchall()
     return [dict(r) for r in rows]
+
+
+async def probe_backend(name: str, base_url: str):
+    result = {"name": name, "url": base_url, "online": False, "models": 0}
+    if not base_url:
+        result["configured"] = False
+        return result
+    result["configured"] = True
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            if name == "ollama":
+                response = await client.get(f"{base_url}/api/tags")
+                if response.status_code < 400:
+                    result["models"] = len(response.json().get("models", []))
+            else:
+                response = await client.get(f"{base_url}/v1/models")
+                if response.status_code < 400:
+                    result["models"] = len(response.json().get("data", []))
+            result["online"] = response.status_code < 400
+    except Exception as exc:
+        result["error"] = type(exc).__name__
+    return result
+
+
+@app.get("/v1/admin/backends", dependencies=[Depends(require_admin)])
+async def admin_backends():
+    return {"selected": BACKEND, "backends": [
+        await probe_backend("ollama", OLLAMA_URL),
+        await probe_backend("vllm", VLLM_URL),
+        await probe_backend("llamacpp", LLAMACPP_URL),
+        await probe_backend("openai-compatible", LLM_BASE_URL),
+    ]}
 
 
 @app.get("/v1/admin/models", dependencies=[Depends(require_admin)])
@@ -275,6 +428,11 @@ def agents(row=Depends(bearer)):
     with db() as con:
         rows = con.execute("SELECT p.id,p.name,p.kind,p.created_at,c.model,c.backend FROM principals p LEFT JOIN agent_configs c ON c.principal_id=p.id WHERE p.active=1 ORDER BY p.id").fetchall()
     return [dict(r) for r in rows]
+
+
+@app.get("/v1/me")
+def me(row=Depends(bearer)):
+    return {"principal": row["principal_name"], "kind": row["principal_kind"], "scopes": row["scopes"].split(",") if row["scopes"] else [], "token_prefix": row["prefix"], "expires_at": row["expires_at"]}
 
 
 @app.get("/v1/models")
