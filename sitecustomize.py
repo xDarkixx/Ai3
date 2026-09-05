@@ -36,5 +36,12 @@ try:
         install_runtime_controls(app)
         user_accounts.install(app)
         install_rate_limit(app)
+
+    # Defense in depth: encrypt stored chat history and add bounded application-layer
+    # DDoS/abuse protection. These never log or store raw bearer tokens.
+    from app.chat_security import install as install_chat_security
+    from app.ddos_protection import install as install_ddos_protection
+    install_chat_security(app)
+    install_ddos_protection(app)
 except Exception:
     pass
