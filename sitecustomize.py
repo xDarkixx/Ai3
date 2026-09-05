@@ -48,8 +48,11 @@ try:
     from app.account_security import install as install_account_security
     install_account_security(app)
 
-    # German Online-Ausweis/AusweisApp integration helper.
     from app.german_eid import install as install_german_eid
     install_german_eid(app)
+
+    # Self-hosted EUDI Wallet verifier bridge; no commercial KYC provider.
+    from app.eudi_identity import install as install_eudi_identity
+    install_eudi_identity(app)
 except Exception:
     pass
