@@ -28,6 +28,8 @@ services:
     environment:
       AI3_DB: /data/ai3.db
       AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
+      AI3_ADMIN_PASSWORD: ${AI3_ADMIN_PASSWORD:-}
+      AI3_ADMIN_SESSION_HOURS: ${AI3_ADMIN_SESSION_HOURS:-12}
       AI3_LLM_BASE_URL: ${AI3_LLM_BASE_URL:-http://ollama:11434/v1}
       AI3_LLM_API_KEY: ${AI3_LLM_API_KEY:-}
       AI3_LLM_TIMEOUT: ${AI3_LLM_TIMEOUT:-300}
@@ -47,13 +49,13 @@ services:
     depends_on:
       ollama:
         condition: service_started
-    # Kept for local diagnostics only; do not expose this port to the internet.
     ports:
       - "127.0.0.1:8090:8090"
     command: ["uvicorn", "api_server:api", "--host", "0.0.0.0", "--port", "8090"]
     environment:
       AI3_DB: /data/ai3.db
       AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
+      AI3_ADMIN_PASSWORD: ${AI3_ADMIN_PASSWORD:-}
       AI3_OLLAMA_URL: http://ollama:11434
     volumes:
       - ai3-data:/data
