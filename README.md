@@ -34,6 +34,7 @@ Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Toke
 - Agent-Konfiguration mit Modell und Backend
 - lokale Modelle über Ollama
 - vorbereitete Backend-Abstraktion für Ollama, vLLM und llama.cpp
+- **optionale kostenpflichtige externe Modelle** über einen OpenAI-kompatiblen Upstream
 - API Playground in der Weboberfläche
 - Usage-/Latenz-/Fehlerstatistik
 - automatische Modellinitialisierung beim Docker-Start
@@ -44,7 +45,21 @@ Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Toke
 - Copyright-/Rechtshinweise direkt in der Oberfläche
 - HTTPS-Deployment mit einem kostenlosen Let's-Encrypt-Zertifikat möglich
 
-## Limits und „unbegrenzt“
+## Lokale oder kostenpflichtige Modelle
+
+AI3 ist nicht auf kostenlose lokale Modelle festgelegt. Wenn lokale Inferenz nicht ausreicht, kann der Betreiber einen **OpenAI-kompatiblen externen Anbieter** als Upstream konfigurieren, z. B. einen Dienst mit `/v1/models` und `/v1/chat/completions`. AI3 reicht die Anfrage über den konfigurierten Upstream weiter; der jeweilige Anbieter rechnet nach dessen Tarif ab.
+
+Beispiel in `.env`:
+
+```env
+AI3_LLM_BASE_URL=https://DEIN-PROVIDER/v1
+AI3_LLM_API_KEY=DEIN_PROVIDER_KEY
+AI3_LLM_TIMEOUT=300
+```
+
+Damit bleiben die AI3-Client-Tokens von den geheimen Upstream-Zugangsdaten getrennt. **Der externe Provider-Key gehört nur auf den AI3-Server und darf niemals an Nutzer/Agents weitergegeben werden.** OpenClaw kann AI3 anschließend als eigenen OpenAI-kompatiblen Provider verwenden. citeturn0search0turn0search3
+
+## Limits und „unbegrenzt"
 
 In **System → Limits & Kontingente** können die Laufzeitlimits eingestellt werden:
 
@@ -64,6 +79,8 @@ Die dortigen Hinweise sind keine Rechtsberatung. Für eine öffentliche Instanz 
 ## Kosten
 
 AI3 kann vollständig lokal mit Open-Source-Modellen betrieben werden, sodass kein bezahlter KI-API-Anbieter notwendig ist. Das ist **0 € für den KI-Provider**, nicht automatisch 0 € Gesamtbetriebskosten. Hardware, Strom, Internet, Hosting, Domain und gegebenenfalls Modell-/Softwarelizenzen können Kosten verursachen.
+
+Bei einem externen kostenpflichtigen Upstream entstehen zusätzlich dessen normale Nutzungsgebühren. AI3 selbst benötigt dafür keinen separaten SaaS-Abrechnungsdienst.
 
 ## Schnellstart
 
@@ -150,4 +167,4 @@ python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
-Die GitHub-Actions-Pipeline testet die Python-Anwendung. Vor einer öffentlichen Freigabe sollte zusätzlich ein echter Docker-Smoke-Test mit Ollama durchgeführt werden.
+Die Tests prüfen jetzt Passwort-Hashing, getrennte Nutzer-/Token-Identitäten, Token-Widerruf, Health/API-Oberfläche und die Unlimited-Limit-Grundeinstellung. Vor einer öffentlichen Freigabe sollte zusätzlich ein echter Docker-Smoke-Test mit Ollama und – bei Nutzung eines externen Anbieters – ein Upstream-Test durchgeführt werden.
