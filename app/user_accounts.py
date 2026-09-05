@@ -12,6 +12,7 @@ DB_PATH = os.getenv("AI3_DB", "/data/ai3.db")
 USER_SESSION_PREFIX = "ai3_user_"
 INVITE_PREFIX = "ai3_inv_"
 TOKEN_PREFIX = "ai3_"
+PUBLIC_REGISTRATION = os.getenv("AI3_PUBLIC_REGISTRATION", "1") == "1"
 
 
 def db():
@@ -45,6 +46,26 @@ def verify_password(password: str, encoded: str) -> bool:
         return secrets.compare_digest(digest.hex(), digest_hex)
     except (ValueError, TypeError):
         return False
+
+
+def normalize_username(value: str) -> str:
+    return value.strip()
+
+
+def normalize_email(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    value = value.strip()
+    return value.lower() if value else None
+
+
+def valid_email(value: Optional[str]) -> bool:
+    if not value:
+        return True
+    if len(value) > 320 or value.count("@") != 1:
+        return False
+    local, domain = value.rsplit("@", 1)
+    return bool(local and domain and "." in domain and not any(c.isspace() for c in value))
 
 
 def install(app: FastAPI):
@@ -109,6 +130,11 @@ def install(app: FastAPI):
         invitation: str = Field(min_length=10, max_length=512)
         password: str = Field(min_length=12, max_length=256)
 
+    class UserRegister(BaseModel):
+        username: str = Field(min_length=3, max_length=100, pattern=r"^[A-Za-z0-9._-]+$")
+        email: Optional[str] = Field(default=None, max_length=320)
+        password: str = Field(min_length=12, max_length=256)
+
     class UserLogin(BaseModel):
         username: str = Field(min_length=1, max_length=100)
         password: str = Field(min_length=1, max_length=256)
@@ -141,6 +167,34 @@ def install(app: FastAPI):
             if not row["active"] or not row["principal_active"]:
                 raise HTTPException(403, "user is inactive")
             return row
+
+    @app.get("/v1/auth/registration")
+    def registration_status():
+        return {"enabled": PUBLIC_REGISTRATION, "password_min_length": 12}
+
+    @app.post("/v1/auth/register")
+    def register_user(body: UserRegister):
+        if not PUBLIC_REGISTRATION:
+            raise HTTPException(403, "public registration is disabled")
+        username = normalize_username(body.username)
+        email = normalize_email(body.email)
+        if not valid_email(email):
+            raise HTTPException(422, "invalid email address")
+        if body.password.lower() == username.lower():
+            raise HTTPException(422, "password must not equal username")
+
+        with db() as con:
+            if con.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+                raise HTTPException(409, "username already exists")
+            try:
+                cur = con.execute("INSERT INTO principals(name,kind,created_at) VALUES(?,?,?)", (f"user:{username}", "user", now()))
+                principal_id = cur.lastrowid
+                cur = con.execute("INSERT INTO users(principal_id,username,email,password_hash,created_at) VALUES(?,?,?,?,?)", (principal_id, username, email, hash_password(body.password), now()))
+                user_id = cur.lastrowid
+                con.execute("INSERT INTO principal_limits(principal_id,updated_at) VALUES(?,?)", (principal_id, now()))
+            except sqlite3.IntegrityError:
+                raise HTTPException(409, "username already exists")
+        return {"ok": True, "username": username, "message": "account created; please log in"}
 
     @app.post("/v1/admin/users/invitations", dependencies=[Depends(__import__('app.main', fromlist=['require_admin']).require_admin)])
     def create_invitation(body: InviteCreate):
@@ -186,7 +240,7 @@ def install(app: FastAPI):
     @app.post("/v1/auth/login")
     def user_login(body: UserLogin):
         with db() as con:
-            row = con.execute("SELECT * FROM users WHERE username=? AND active=1", (body.username,)).fetchone()
+            row = con.execute("SELECT * FROM users WHERE username=? AND active=1", (normalize_username(body.username),)).fetchone()
         if not row or not verify_password(body.password, row["password_hash"]):
             raise HTTPException(401, "invalid username or password")
         raw = USER_SESSION_PREFIX + secrets.token_urlsafe(48)
