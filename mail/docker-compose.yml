@@ -22,6 +22,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - ai3-public
 
 volumes:
   poste-data:
+
+networks:
+  ai3-public:
+    external: true
