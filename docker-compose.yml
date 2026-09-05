@@ -34,6 +34,22 @@ services:
     volumes:
       - ai3-data:/data
 
+  ai3-api-server:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_started
+    ports:
+      - "8090:8090"
+    command: ["uvicorn", "api_server:api", "--host", "0.0.0.0", "--port", "8090"]
+    environment:
+      AI3_DB: /data/ai3.db
+      AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
+      AI3_OLLAMA_URL: http://ollama:11434
+    volumes:
+      - ai3-data:/data
+
 volumes:
   ai3-data:
   ollama-data:
