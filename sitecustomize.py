@@ -29,10 +29,12 @@ try:
         from app.advanced_security import install as install_security
         from app.rate_limit import install as install_rate_limit
         from app.runtime_controls import install as install_runtime_controls
-        from app.user_accounts import install as install_user_accounts
+        from app import user_accounts
+        user_accounts.hash_password = _safe_hash_password
+        user_accounts.verify_password = _safe_verify_password
         install_security(app)
         install_runtime_controls(app)
-        install_user_accounts(app)
+        user_accounts.install(app)
         install_rate_limit(app)
 except Exception:
     pass
