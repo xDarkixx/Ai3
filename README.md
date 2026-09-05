@@ -2,6 +2,30 @@
 
 AI3 ist ein selbst gehosteter Gateway für lokale KI-Modelle, KI-Agenten und OpenAI-kompatible Anwendungen. **Branding: xDarkixx. Copyright © 2026 xDarkixx.** Der Standardstack benötigt keinen kostenpflichtigen KI-API-Anbieter.
 
+## Empfohlenes Zielsystem
+
+AI3 wird als **einheitliches System für Ubuntu Server 24.04 LTS amd64** gepflegt. Ubuntu 24.04 LTS erhält reguläre Sicherheitswartung bis 2029; die genaue Lebensdauer ist in der Ubuntu-Release-Übersicht dokumentiert. citeturn0search1turn0search8
+
+Der Installer unterstützt auf diesem einen System automatisch beide Hardwarevarianten:
+
+- **NVIDIA vorhanden und Docker-GPU-Test erfolgreich → GPU-Modus**
+- **keine NVIDIA-GPU oder GPU-Test fehlgeschlagen → CPU-Modus**
+- kein separater AI3-Codezweig nötig
+- gleiche Daten, API und OpenClaw-Anbindung in beiden Modi
+
+Siehe die ausführliche Hardwareplanung in [`HARDWARE.md`](HARDWARE.md).
+
+## Hardware-Empfehlung
+
+| Einsatz | CPU | RAM | GPU/VRAM | Speicher |
+|---|---:|---:|---:|---:|
+| Test / 1 Benutzer | 4 Kerne | 8 GB | keine | 50 GB SSD |
+| Privater AI3-Server | 6–8 Kerne | 16 GB | optional 8 GB VRAM | 100 GB NVMe |
+| Mehrere Agents | 8–16 Kerne | 32 GB | 12–16 GB VRAM | 250 GB NVMe |
+| Große lokale Modelle | 12–24 Kerne | 64 GB+ | 24 GB+ VRAM | 500 GB+ NVMe |
+
+Das sind AI3-Praxisempfehlungen und keine offiziellen Mindestanforderungen für KI-Inferenz. Der konkrete Bedarf hängt von Modell, Quantisierung, Kontext und Parallelität ab. Ubuntu selbst nennt wesentlich niedrigere Server-Minima; ein AI3-Server mit lokaler KI braucht entsprechend mehr Reserven. citeturn0search1
+
 ## Für andere Nutzer / Clients
 
 AI3 ist dafür gebaut, dass **andere Personen, Agents und Programme** ihn wie einen normalen KI-Provider benutzen können:
@@ -21,7 +45,7 @@ Client / OpenClaw / Open WebUI / Bot / App
                  Modell
 ```
 
-Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Token. Dadurch muss kein gemeinsamer Admin-Schlüssel verteilt werden. OpenClaw unterstützt solche benutzerdefinierten OpenAI-kompatiblen Provider mit `baseUrl`, API-Key und `openai-completions`. citeturn0search0turn0search4
+Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Token. Dadurch muss kein gemeinsamer Admin-Schlüssel verteilt werden.
 
 ## Was AI3 kann
 
@@ -34,7 +58,7 @@ Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Toke
 - Agent-Konfiguration mit Modell und Backend
 - lokale Modelle über Ollama
 - vorbereitete Backend-Abstraktion für Ollama, vLLM und llama.cpp
-- **optionale kostenpflichtige externe Modelle** über einen OpenAI-kompatiblen Upstream
+- optionale kostenpflichtige externe Modelle über einen OpenAI-kompatiblen Upstream
 - API Playground in der Weboberfläche
 - Usage-/Latenz-/Fehlerstatistik
 - automatische Modellinitialisierung beim Docker-Start
@@ -43,33 +67,22 @@ Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Toke
 - Live-Limits und Quoten
 - modernes responsives Command-Center-Design
 - Copyright-/Rechtshinweise direkt in der Oberfläche
-- optionales NVIDIA-GPU-Passthrough für Ollama
+- automatisches NVIDIA-GPU-Passthrough oder CPU-Fallback
 
 ## One-Click-Installation
 
-### Ubuntu / Debian mit Docker Engine
-
-Der Installer richtet die benötigten Systemkomponenten ein, darunter Docker Engine, Docker Compose Plugin, Git, Python und die benötigten Werkzeuge. Wenn `nvidia-smi` verfügbar ist, richtet er zusätzlich das NVIDIA Container Toolkit ein und verwendet die GPU für Ollama, sofern Docker-GPU-Zugriff erfolgreich getestet werden kann. Die Docker- und NVIDIA-Schritte folgen den offiziellen Installationswegen. citeturn0search6turn1search0
+### Ubuntu Server 24.04 LTS
 
 ```bash
 chmod +x scripts/install-ubuntu.sh
 ./scripts/install-ubuntu.sh
 ```
 
-Danach laufen AI3 und Ollama als Docker-Stack. Das lokale Modell aus `AI3_MODEL` wird automatisch geladen. Docker Compose ist genau für das gemeinsame Starten mehrerer Services und persistenter Volumes ausgelegt. citeturn0search4turn0search7
+Der Installer prüft das Betriebssystem, installiert Docker Engine und Compose, erkennt NVIDIA, richtet bei Bedarf das NVIDIA Container Toolkit ein und testet den GPU-Zugriff. Bei einem fehlgeschlagenen GPU-Test läuft die Installation automatisch im CPU-Modus. Danach werden AI3, Ollama und das konfigurierte lokale Modell gestartet. citeturn0search1
 
-### Windows
+Nach erfolgreicher Installation wird zusätzlich `scripts/doctor.sh` ausgeführt. Damit werden Docker, Compose, CPU-/GPU-Compose-Dateien, AI3 Health, Ollama und grundlegende Sicherheitsdateien geprüft.
 
-Docker Desktop muss installiert und gestartet sein. Danach in PowerShell:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\install-windows.ps1
-```
-
-Der Windows-Installer erstellt `.env`, startet den Stack, wartet auf den Health-Endpunkt, erzeugt einen Agenten und schreibt die OpenClaw-Konfiguration.
-
-### Ergebnis
+## Ergebnis
 
 Nach der Installation gibt es automatisch:
 
@@ -83,13 +96,23 @@ Nach der Installation gibt es automatisch:
 
 **Geheimnisse niemals committen:** `.env` und die generierte OpenClaw-Datei bleiben per `.gitignore` außerhalb von Git.
 
-Für einen öffentlichen Server sollten zusätzlich TLS/Reverse-Proxy, Firewall und ein strenges Rate-Limit eingerichtet werden. Ein kostenloses Let's-Encrypt-Zertifikat ist möglich.
+Für einen öffentlichen Server sollten zusätzlich TLS/Reverse-Proxy, Firewall und ein strenges Rate-Limit eingerichtet werden.
+
+## Diagnose
+
+```bash
+./scripts/doctor.sh
+```
+
+Bei Problemen:
+
+```bash
+docker compose logs --tail=150
+```
 
 ## Lokale oder kostenpflichtige Modelle
 
-AI3 ist nicht auf kostenlose lokale Modelle festgelegt. Wenn lokale Inferenz nicht ausreicht, kann der Betreiber einen **OpenAI-kompatiblen externen Anbieter** als Upstream konfigurieren, z. B. einen Dienst mit `/v1/models` und `/v1/chat/completions`. AI3 reicht die Anfrage über den konfigurierten Upstream weiter; der jeweilige Anbieter rechnet nach dessen Tarif ab.
-
-Beispiel in `.env`:
+AI3 kann vollständig lokal laufen. Alternativ kann der Betreiber einen OpenAI-kompatiblen externen Anbieter als Upstream konfigurieren. Der Provider-Key bleibt auf dem AI3-Server.
 
 ```env
 AI3_LLM_BASE_URL=https://DEIN-PROVIDER/v1
@@ -97,46 +120,18 @@ AI3_LLM_API_KEY=DEIN_PROVIDER_KEY
 AI3_LLM_TIMEOUT=300
 ```
 
-Der externe Provider-Key bleibt ausschließlich auf dem AI3-Server und wird nicht an Nutzer/Agents weitergegeben. OpenClaw kann AI3 anschließend als eigenen OpenAI-kompatiblen Provider verwenden. citeturn0search0turn0search3
-
 ## Limits und „unbegrenzt"
 
-In **System → Limits & Kontingente** können die Laufzeitlimits eingestellt werden:
+In **System → Limits & Kontingente** können Laufzeitlimits eingestellt werden:
 
 - Requests pro Minute
 - Requests pro 24 Stunden
 
-**`0 = unbegrenzt`.** Die Änderungen werden ohne Neustart für neue Requests übernommen. Mit **„Alles unbegrenzt“** werden die beiden aktiven Limits auf 0 gesetzt.
-
-Für einen öffentlichen Server wird empfohlen, Limits zu aktivieren. Für einen privaten Server kann 0/unbegrenzt verwendet werden. Infrastrukturressourcen bleiben natürlich trotzdem begrenzt durch CPU, RAM, GPU, Speicher und Netzwerk.
-
-## Branding und Rechtliches
-
-AI3 trägt sichtbar die Kennzeichnung **„AI3 — BY XDARKIXX“** sowie **© 2026 xDarkixx — AI3**. Zusätzlich gibt es in der Weboberfläche eine Seite **„Rechtliches“** und im Repository `LEGAL.md`.
-
-Die dortigen Hinweise sind keine Rechtsberatung. Für eine öffentliche Instanz müssen insbesondere Betreiberangaben/Impressum, Datenschutzerklärung, Aufbewahrungs- und Löschregeln sowie die Lizenzen verwendeter Modelle und Drittanbieter geprüft und an den konkreten Betreiber angepasst werden.
+**`0 = unbegrenzt`.** Infrastruktur bleibt natürlich durch CPU, RAM, GPU, Speicher und Netzwerk begrenzt.
 
 ## Kosten
 
-AI3 kann vollständig lokal mit Open-Source-Modellen betrieben werden, sodass kein bezahlter KI-API-Anbieter notwendig ist. Das ist **0 € für den KI-Provider**, nicht automatisch 0 € Gesamtbetriebskosten. Hardware, Strom, Internet, Hosting, Domain und gegebenenfalls Modell-/Softwarelizenzen können Kosten verursachen.
-
-Bei einem externen kostenpflichtigen Upstream entstehen zusätzlich dessen normale Nutzungsgebühren. AI3 selbst benötigt dafür keinen separaten SaaS-Abrechnungsdienst.
-
-## Manuelle Schnellstart-Alternative
-
-```bash
-chmod +x scripts/setup-local.sh
-./scripts/setup-local.sh
-```
-
-Oder manuell:
-
-```bash
-cp .env.example .env
-docker compose up -d --build
-```
-
-Standardmäßig wird `llama3.2:3b` geladen. Weboberfläche und API sind anschließend unter dem AI3-Host erreichbar.
+AI3 kann vollständig lokal mit Open-Source-Modellen betrieben werden, sodass kein bezahlter KI-API-Anbieter notwendig ist. Das bedeutet nicht automatisch 0 € Gesamtbetriebskosten: Hardware, Strom, Internet, Hosting, Domain und gegebenenfalls Modell-/Softwarelizenzen können Kosten verursachen.
 
 ## OpenAI-kompatible Endpunkte
 
@@ -163,4 +158,10 @@ Standardmäßig wird `llama3.2:3b` geladen. Weboberfläche und API sind anschlie
 }
 ```
 
-OpenClaw verbindet sich damit direkt mit AI3; der Nutzer benötigt keinen eigenen externen KI-API-Key, solange AI3 lokal inferiert. citeturn0search0turn0search2
+OpenClaw verbindet sich damit direkt mit AI3; ein externer KI-API-Key ist bei lokaler Inferenz nicht nötig.
+
+## Branding und Rechtliches
+
+AI3 trägt sichtbar die Kennzeichnung **„AI3 — BY XDARKIXX“** sowie **© 2026 xDarkixx — AI3**. Zusätzlich gibt es `LEGAL.md` und die entsprechende Weboberfläche.
+
+Die rechtlichen Hinweise sind keine Rechtsberatung. Für eine öffentliche Instanz müssen insbesondere Betreiberangaben, Datenschutz, Aufbewahrung/Löschung sowie Modell- und Drittanbieter-Lizenzen an den konkreten Betrieb angepasst werden.
