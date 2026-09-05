@@ -1,0 +1,9 @@
+[Unit]
+Description=AI3 automatic LAN network identity refresh
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ai3
+ExecStart=/opt/ai3/scripts/network-refresh.sh
