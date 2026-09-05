@@ -26,6 +26,7 @@ VLLM_URL = os.getenv("AI3_VLLM_URL", "").rstrip("/")
 LLAMACPP_URL = os.getenv("AI3_LLAMACPP_URL", "").rstrip("/")
 BACKEND = os.getenv("AI3_BACKEND", "ollama")
 ADMIN_SESSION_HOURS = int(os.getenv("AI3_ADMIN_SESSION_HOURS", "12"))
+PRIVACY_MODE = os.getenv("AI3_PRIVACY_MODE", "1") == "1"
 
 app = FastAPI(title="AI3 Universal AI Gateway", version="3.1.0")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -84,11 +85,27 @@ def init_db():
             exists = con.execute("SELECT 1 FROM admin_settings WHERE name='password_hash'").fetchone()
             if not exists:
                 con.execute("INSERT INTO admin_settings(name,value,updated_at) VALUES('password_hash',?,?)", (hash_password(INITIAL_ADMIN_PASSWORD), now()))
+    try:
+        os.chmod(DB_PATH, 0o600)
+    except OSError:
+        pass
 
 
 @app.on_event("startup")
 def startup():
     init_db()
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.url.path.startswith("/v1/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
 
 
 @app.middleware("http")
@@ -215,7 +232,7 @@ def upstream_url(path: str):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "ai3-gateway", "version": app.version, "time": now(), "llm_configured": bool(LLM_BASE_URL), "backend": BACKEND}
+    return {"status": "ok", "service": "ai3-gateway", "version": app.version, "time": now(), "llm_configured": bool(LLM_BASE_URL), "backend": BACKEND, "privacy_mode": PRIVACY_MODE}
 
 
 @app.post("/v1/admin/login")
@@ -245,6 +262,22 @@ def admin_security():
         row = con.execute("SELECT 1 FROM admin_settings WHERE name='password_hash'").fetchone()
         sessions = con.execute("SELECT COUNT(*) FROM admin_sessions WHERE active=1 AND expires_at>?", (now(),)).fetchone()[0]
     return {"password_configured": bool(row), "password_hash": "scrypt", "active_admin_sessions": sessions, "api_key_bootstrap": bool(ADMIN_KEY), "token_format": "opaque-random-hash-at-rest", "recommended_session_hours": ADMIN_SESSION_HOURS}
+
+
+@app.get("/v1/admin/privacy", dependencies=[Depends(require_admin)])
+def admin_privacy():
+    return {
+        "privacy_mode": PRIVACY_MODE,
+        "prompts_stored": False,
+        "responses_stored": False,
+        "raw_bearer_tokens_stored": False,
+        "passwords_stored_plaintext": False,
+        "usage_metadata_stored": True,
+        "usage_metadata": ["endpoint", "principal_id", "status_code", "duration_ms", "created_at"],
+        "database_permissions": "0600 where supported",
+        "api_cache": "no-store for /v1/*",
+        "note": "AI3 does not persist chat request or response bodies; upstream providers may have their own retention policies."
+    }
 
 
 @app.post("/v1/admin/password", dependencies=[Depends(require_admin)])
@@ -392,7 +425,7 @@ async def admin_status():
         principals = con.execute("SELECT COUNT(*) FROM principals WHERE active=1").fetchone()[0]
         tokens = con.execute("SELECT COUNT(*) FROM tokens WHERE active=1").fetchone()[0]
         requests = con.execute("SELECT COUNT(*) FROM usage_events").fetchone()[0]
-    return {"service": "AI3", "version": app.version, "gateway": "online", "ollama": ollama_status, "local_models": local_models, "principals": principals, "active_tokens": tokens, "requests": requests, "backend": BACKEND, "llm_configured": bool(LLM_BASE_URL)}
+    return {"service": "AI3", "version": app.version, "gateway": "online", "ollama": ollama_status, "local_models": local_models, "principals": principals, "active_tokens": tokens, "requests": requests, "backend": BACKEND, "llm_configured": bool(LLM_BASE_URL), "privacy_mode": PRIVACY_MODE}
 
 
 @app.get("/v1/admin/usage", dependencies=[Depends(require_admin)])
