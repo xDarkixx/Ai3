@@ -10,10 +10,10 @@ Auf Ubuntu 24.04 LTS ist der Zielablauf:
 
 1. Repository bereitstellen.
 2. `scripts/install-ubuntu.sh` ausführen.
-3. Router/Firewall-Portweiterleitungen setzen.
-4. AI3 startet selbstständig und bleibt nach Neustarts aktiv.
+3. Router/Firewall-Portweiterleitungen einmalig auf diesen PC setzen.
+4. AI3 startet selbstständig und überwacht seine LAN-Adresse.
 
-Der Installer installiert Docker/Compose, erkennt NVIDIA-GPUs, richtet Ollama und das lokale Modell ein, erzeugt Secrets, startet AI3/Caddy/Mail, prüft die Dienste und erzeugt die OpenClaw-Konfiguration. Docker Compose verwendet Abhängigkeiten und Healthchecks, damit Dienste in der richtigen Reihenfolge starten. citeturn0search0turn0search3
+Der Installer installiert Docker/Compose, erkennt NVIDIA-GPUs, richtet Ollama und das lokale Modell ein, erzeugt Secrets, startet AI3/Caddy/Mail, richtet den automatischen LAN-Watcher ein, prüft die Dienste und erzeugt die OpenClaw-Konfiguration.
 
 ```bash
 chmod +x scripts/install-ubuntu.sh
@@ -21,6 +21,27 @@ chmod +x scripts/install-ubuntu.sh
 ```
 
 Alle produktiven Container verwenden `restart: unless-stopped`, damit sie nach einem Docker-/Host-Neustart automatisch wieder anlaufen.
+
+## 🔄 Automatische Netzwerk-Selbstheilung
+
+AI3 benötigt keine fest eingetragene LAN-IP. `scripts/network-refresh.sh` erkennt automatisch PC-Name, aktuelle IPv4, Netzwerkinterface und Gateway. Ein systemd-Dienst aktualisiert die Identität beim Boot; ein Timer prüft sie anschließend regelmäßig. systemd-Timer sind dafür als periodische Aktivierung von Services vorgesehen. citeturn0search0
+
+Wenn der Router beispielsweise DHCP neu vergibt und der PC von `192.168.178.50` auf `192.168.178.73` wechselt, aktualisiert AI3 automatisch die gespeicherte LAN-IP und bei Bedarf nur Caddy. Ollama, Datenbank und die übrigen AI3-Dienste müssen dafür nicht neu gestartet werden.
+
+Im Diagnosebereich werden PC-Name, aktuelle IP und das erforderliche Router-Ziel angezeigt:
+
+```text
+PC-Name:        AI3-PC
+Aktuelle IP:    192.168.178.73
+Router-Ziel:    TCP 80/443 -> 192.168.178.73
+
+[ Router öffnen ]
+[ Anleitung anzeigen ]
+```
+
+**Router-Portfreigaben werden absichtlich nicht automatisch verändert.** Du wählst im Router einmal den AI3-PC als Zielgerät und leitest die benötigten Ports weiter. AI3 verändert weder Router-Einstellungen noch öffnet selbstständig zusätzliche Ports.
+
+Für besonders stabile Heimnetze ist eine DHCP-Reservierung für den AI3-PC weiterhin empfehlenswert; die automatische Erkennung bleibt trotzdem aktiv, falls sich die Adresse unerwartet ändert.
 
 ## 🔐 Automatisches HTTPS
 
@@ -39,7 +60,7 @@ Ports:
 - POP3: `110` / `995`
 - Sieve: `4190`
 
-Für echte öffentliche E-Mail-Zustellung sind zusätzlich eine öffentliche IP, korrektes PTR/rDNS und vollständige DNS-Verwaltung der Domain erforderlich. Port 25 kann der Router/Firewall weiterleiten, aber eine Sperre des Internetproviders kann AI3 nicht softwareseitig aufheben. citeturn1search0turn1search3
+Für echte öffentliche E-Mail-Zustellung sind zusätzlich eine öffentliche IP, korrektes PTR/rDNS und vollständige DNS-Verwaltung der Domain erforderlich. Port 25 kann der Router/Firewall weiterleiten, aber eine Sperre des Internetproviders kann AI3 nicht softwareseitig aufheben.
 
 ## 🪪 Eigene Verifizierung
 
@@ -74,6 +95,7 @@ Das Control Center bündelt:
 - HTTPS
 - Backups
 - Sicherheitsstatus
+- Netzwerkstatus und LAN-IP
 - Diagnose/Healthchecks
 
 ## 🔏 Eigene PKI
@@ -92,15 +114,15 @@ Der Standardbetrieb ist auf **0 € für externe KI-, KYC-, SMTP- und Zertifikat
 
 Enthalten sind unter anderem Token-Scopes, Ablaufzeiten, Admin-Sessions, Verschlüsselung, Rate-Limits, IP-/Concurrency-Schutz, HTTP-Sicherheitsheader, eigene PKI, Zertifikatswiderruf und lokale Backups.
 
-Für einen öffentlichen Server muss die Firewall weiterhin restriktiv betrieben werden. Ein Router kann die benötigten Ports auf den AI3-Server weiterleiten.
+Für einen öffentlichen Server muss die Firewall weiterhin restriktiv betrieben werden. Ein Router kann die benötigten Ports auf den AI3-Server weiterleiten. AI3 übernimmt bewusst nicht die automatische Router-Konfiguration.
 
 ## 📦 Neustartverhalten
 
-Nach erfolgreicher Erstinstallation ist kein manueller Start der Container notwendig. Docker wird beim Boot aktiviert und die AI3-Dienste besitzen automatische Restart-Regeln. Compose kann zusätzlich auf Healthchecks und Abhängigkeiten warten, bevor abhängige Dienste gestartet werden. citeturn0search0turn0search8
+Nach erfolgreicher Erstinstallation ist kein manueller Start der Container notwendig. Docker wird beim Boot aktiviert und die AI3-Dienste besitzen automatische Restart-Regeln. Zusätzlich startet der LAN-Watcher beim Boot und prüft die Netzwerkidentität regelmäßig. citeturn0search0
 
 ## ⚠️ Was nicht automatisierbar ist
 
-AI3 kann lokale Software, Zertifikate, Mailserver, Datenbanken, Modelle, Firewall-Regeln und Container automatisieren. Es kann jedoch nicht selbst:
+AI3 kann lokale Software, Zertifikate, Mailserver, Datenbanken, Modelle, Firewall-Regeln und Container automatisieren. Es kann jedoch nicht ohne passende Router-/Provider-Schnittstelle:
 
 - einen Domainnamen besitzen,
 - DNS beim Domainanbieter ohne dessen API-Zugang ändern,
@@ -108,4 +130,4 @@ AI3 kann lokale Software, Zertifikate, Mailserver, Datenbanken, Modelle, Firewal
 - eine ISP-Sperre für Port 25 aufheben,
 - eine öffentliche IP vom Internetanbieter bereitstellen.
 
-Das sind Netzwerk-/Infrastrukturvoraussetzungen und keine AI3-Softwareaufgaben.
+Die LAN-IP des AI3-PCs wird dagegen automatisch erkannt und aktualisiert.
