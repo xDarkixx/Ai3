@@ -9,5 +9,5 @@
 
 mail.{$AI3_DOMAIN:localhost} {
     encode zstd gzip
-    reverse_proxy poste-mail:80
+    reverse_proxy host.docker.internal:8081
 }
