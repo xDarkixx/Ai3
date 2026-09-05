@@ -3,11 +3,13 @@ import os
 import secrets
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 DB_PATH = os.getenv("AI3_DB", "/data/ai3.db")
@@ -17,7 +19,10 @@ LLM_BASE_URL = os.getenv("AI3_LLM_BASE_URL", "").rstrip("/")
 LLM_API_KEY = os.getenv("AI3_LLM_API_KEY", "")
 LLM_TIMEOUT = float(os.getenv("AI3_LLM_TIMEOUT", "300"))
 
-app = FastAPI(title="AI3 Token Server", version="2.0.0")
+app = FastAPI(title="AI3 Token Server", version="2.1.0")
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
 
 
 def now():
@@ -62,6 +67,11 @@ def init_db():
 @app.on_event("startup")
 def startup():
     init_db()
+
+
+@app.get("/", include_in_schema=False)
+def web_home():
+    return FileResponse(WEB_DIR / "index.html")
 
 
 class PrincipalCreate(BaseModel):
@@ -154,6 +164,33 @@ def create_token(body: TokenCreate):
         con.execute("INSERT INTO tokens(principal_id,token_hash,prefix,name,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?)",
                     (p["id"], hash_token(raw), raw[:12], body.name, ",".join(sorted(set(body.scopes))), now(), body.expires_at))
         return {"token": raw, "token_prefix": raw[:12], "principal": p["name"], "scopes": sorted(set(body.scopes)), "expires_at": body.expires_at}
+
+
+@app.get("/v1/admin/principals", dependencies=[Depends(require_admin)])
+def admin_principals():
+    with db() as con:
+        rows = con.execute("SELECT id,name,kind,created_at,active FROM principals ORDER BY id").fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/v1/admin/tokens", dependencies=[Depends(require_admin)])
+def admin_tokens():
+    with db() as con:
+        rows = con.execute("""
+            SELECT t.prefix,t.name,t.scopes,t.created_at,t.last_used_at,t.expires_at,t.active,
+                   p.name AS principal
+            FROM tokens t JOIN principals p ON p.id=t.principal_id ORDER BY t.id DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/v1/admin/models", dependencies=[Depends(require_admin)])
+async def admin_models():
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+        response = await client.get(upstream_url("/models"), headers=upstream_headers())
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code, response.text[:1000])
+    return response.json()
 
 
 @app.get("/v1/me")
