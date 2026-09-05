@@ -17,12 +17,38 @@ services:
     command: ["until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull \"$${AI3_MODEL}\""]
     restart: "no"
 
+  # Self-hosted EUDI identity stack. No commercial KYC provider is required.
+  # The verifier/trust-validator are European Commission open-source reference components.
+  # Production use still requires HTTPS, proper access certificates/trust configuration,
+  # hardening and any applicable regulatory/certification requirements.
+  eudi-trust-validator:
+    image: ghcr.io/eu-digital-identity-wallet/eudi-srv-trust-validator:latest
+    restart: unless-stopped
+    expose:
+      - "8080"
+
+  eudi-verifier:
+    image: ghcr.io/eu-digital-identity-wallet/eudi-srv-verifier-endpoint:0.9.0
+    restart: unless-stopped
+    depends_on:
+      - eudi-trust-validator
+    environment:
+      SERVER_PORT: 8080
+      VERIFIER_PUBLICURL: ${AI3_EUDI_PUBLIC_URL:-https://ai3.example.com/eudi}
+      VERIFIER_DEFAULTHTTPRESPONSEMODE: DirectPost
+      VERIFIER_TRUSTVALIDATOR_SERVICEURL: http://eudi-trust-validator:8080/trust
+      VERIFIER_ATTESTATIONCLASSIFICATIONS: '{"pid":{"vcts":[],"docTypes":["eu.europa.ec.eudi.pid.1"]},"qeaa":{"vcts":[],"docTypes":[]},"pubeaa":{"vcts":[],"docTypes":[]},"eaa":[]}'
+    expose:
+      - "8080"
+
   ai3-token-server:
     build: .
     restart: unless-stopped
     depends_on:
       ollama-init:
         condition: service_completed_successfully
+      eudi-verifier:
+        condition: service_started
     ports:
       - "8080:8080"
     environment:
@@ -30,6 +56,9 @@ services:
       AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
       AI3_ADMIN_PASSWORD: ${AI3_ADMIN_PASSWORD:-}
       AI3_ADMIN_SESSION_HOURS: ${AI3_ADMIN_SESSION_HOURS:-12}
+      AI3_PUBLIC_BASE_URL: ${AI3_PUBLIC_BASE_URL:-}
+      AI3_EUDI_PUBLIC_URL: ${AI3_EUDI_PUBLIC_URL:-}
+      AI3_EUDI_VERIFIER_URL: http://eudi-verifier:8080
       AI3_LLM_BASE_URL: ${AI3_LLM_BASE_URL:-http://ollama:11434/v1}
       AI3_LLM_API_KEY: ${AI3_LLM_API_KEY:-}
       AI3_LLM_TIMEOUT: ${AI3_LLM_TIMEOUT:-300}
