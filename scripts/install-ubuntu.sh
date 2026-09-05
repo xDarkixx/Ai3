@@ -5,13 +5,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
-
 command -v apt-get >/dev/null 2>&1 || { echo "Dieser Installer ist für Ubuntu/Debian mit apt gedacht."; exit 1; }
 
+echo "[1/6] Installiere Basis-Komponenten ..."
+$SUDO apt-get update
+$SUDO apt-get install -y ca-certificates curl git python3 gnupg2
+
 if ! command -v docker >/dev/null 2>&1; then
-  echo "[1/5] Installiere Docker Engine + Compose ..."
-  $SUDO apt-get update
-  $SUDO apt-get install -y ca-certificates curl git
+  echo "[2/6] Installiere Docker Engine + Compose ..."
   $SUDO install -m 0755 -d /etc/apt/keyrings
   if [ ! -f /etc/apt/keyrings/docker.asc ]; then
     $SUDO curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
@@ -29,29 +30,47 @@ EOF
   $SUDO apt-get update
   $SUDO apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   $SUDO systemctl enable --now docker
+else
+  echo "[2/6] Docker ist bereits installiert."
 fi
 
-echo "[2/5] Prüfe Docker Compose ..."
+echo "[3/6] Prüfe Docker + Compose ..."
 docker compose version
+if ! docker info >/dev/null 2>&1; then
+  if getent group docker >/dev/null 2>&1; then $SUDO usermod -aG docker "$(id -un)" || true; fi
+  echo "Docker ist nicht ohne sudo erreichbar. Bitte einmal neu anmelden und den Installer erneut starten."
+  exit 1
+fi
 
-echo "[3/5] Bereite AI3 vor ..."
+if command -v nvidia-smi >/dev/null 2>&1; then
+  echo "[4/6] NVIDIA-GPU gefunden – richte NVIDIA Container Toolkit ein ..."
+  if ! command -v nvidia-ctk >/dev/null 2>&1; then
+    $SUDO mkdir -p /usr/share/keyrings
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | $SUDO gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | $SUDO tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
+    $SUDO apt-get update
+    $SUDO apt-get install -y nvidia-container-toolkit
+  fi
+  $SUDO nvidia-ctk runtime configure --runtime=docker
+  $SUDO systemctl restart docker
+else
+  echo "[4/6] Keine NVIDIA-GPU erkannt – CPU-Modus."
+fi
+
+echo "[5/6] Starte AI3 + Ollama + lokales Modell ..."
 mkdir -p openclaw
 chmod +x scripts/setup-local.sh
-
-# Prefer the invoking user for Docker after installing the daemon.
-if [ -n "$SUDO" ] && getent group docker >/dev/null 2>&1; then
-  $SUDO usermod -aG docker "$(id -un)" || true
-  if ! docker info >/dev/null 2>&1; then
-    echo "Docker ist installiert. Für den ersten Lauf bitte einmal neu anmelden oder 'newgrp docker' ausführen."
-    echo "Danach erneut: ./scripts/install-ubuntu.sh"
-    exit 0
-  fi
-fi
-
-echo "[4/5] Starte den kompletten AI3-Stack ..."
 ./scripts/setup-local.sh
 
-echo "[5/5] Installation abgeschlossen."
-echo "AI3 läuft lokal auf http://localhost:8080"
-echo "Der Stack enthält AI3 + Ollama + das konfigurierte lokale Modell."
-echo "Für einen öffentlichen Server sollte anschließend TLS/Reverse-Proxy eingerichtet werden."
+echo "[6/6] Abschlussprüfung ..."
+docker compose ps
+curl -fsS http://localhost:8080/health >/dev/null
+
+echo
+echo "========================================"
+echo " AI3 ONE-CLICK INSTALLATION FERTIG"
+echo "========================================"
+echo "AI3:     http://localhost:8080"
+echo "OpenClaw: openclaw/ai3-provider.generated.json5"
+echo "Daten:   Docker-Volumes ai3-data + ollama-data"
+echo "========================================"
