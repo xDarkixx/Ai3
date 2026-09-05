@@ -11,6 +11,17 @@ need_cmd python3
 
 docker compose version >/dev/null
 
+mkdir -p secrets
+if [ ! -f secrets/ai3_data_encryption_key ]; then
+  python3 - <<'PY' > secrets/ai3_data_encryption_key
+import secrets
+print(secrets.token_hex(32))
+PY
+  chmod 600 secrets/ai3_data_encryption_key
+  echo "Verschlüsselungsschlüssel für Chat-Daten wurde erzeugt und außerhalb der Datenbank gespeichert."
+fi
+chmod 600 secrets/ai3_data_encryption_key
+
 if [ ! -f .env ]; then
   ADMIN_KEY="$(python3 - <<'PY'
 import secrets
@@ -28,7 +39,7 @@ AI3_ADMIN_PASSWORD=$ADMIN_PASSWORD
 AI3_ADMIN_SESSION_HOURS=12
 AI3_MODEL=llama3.2:3b
 AI3_OLLAMA_URL=http://ollama:11434
-AI3_LLM_BASE_URL=http://ollama:11434/v1
+AI3_LLM_BASE_URL=http://ollama:114114/v1
 AI3_LLM_API_KEY=
 AI3_LLM_TIMEOUT=300
 AI3_VLLM_URL=
@@ -39,9 +50,15 @@ AI3_ACCESS_TOKEN_MINUTES=15
 AI3_REFRESH_TOKEN_DAYS=30
 AI3_RATE_LIMIT_RPM=120
 AI3_DAILY_REQUEST_LIMIT=0
+AI3_DDOS_IP_RPM=120
+AI3_DDOS_MAX_CONCURRENT_PER_IP=20
+AI3_MAX_REQUEST_BYTES=2000000
+AI3_MAX_CHAT_STORAGE_BYTES=2000000
 AI3_BACKUP_DIR=/data/backups
 EOF
   chmod 600 .env
+  # Correct the generated local Ollama URL if this setup is copied into an old template.
+  sed -i 's#http://ollama:114114/v1#http://ollama:11434/v1#' .env
   echo ".env wurde mit zufälligem Admin-Key und Admin-Passwort erstellt."
   echo "Admin-Passwort (einmalig anzeigen): $ADMIN_PASSWORD"
 fi
@@ -134,6 +151,8 @@ echo "Modell:    $MODEL"
 echo "OpenClaw:  openclaw/ai3-provider.generated.json5"
 echo "Token:     wurde erzeugt (nicht veröffentlichen)"
 echo "Admin:     Passwort steht in .env"
+echo "Chat:      AES-256-GCM verschlüsselt"
+echo "DDoS:      Rate/Concurrency/Body-Limit aktiv"
 echo "========================================"
 echo "Test: curl http://localhost:8080/v1/models -H 'Authorization: Bearer $TOKEN'"
 echo "Logs: docker compose ${COMPOSE_FILES[*]} logs -f"
