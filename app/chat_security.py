@@ -107,14 +107,18 @@ def _capture_route(app):
 
         async def wrapped(request: Request, row, _original=original):
             principal = row or _principal(request)
-            response = await _original(request=request, row=principal)
-            if not principal:
-                return response
             try:
                 raw = await request.body()
                 if len(raw) > MAX_CHAT_BYTES:
                     return JSONResponse({"error": {"message": "chat body too large", "type": "invalid_request_error"}}, status_code=413)
-                payload = json.loads(raw or b"{}")
+            except Exception:
+                raw = b""
+
+            response = await _original(request=request, row=principal)
+            if not principal or not raw:
+                return response
+            try:
+                payload = json.loads(raw)
                 if payload.get("stream") is True:
                     return response
                 body = getattr(response, "body", None)
