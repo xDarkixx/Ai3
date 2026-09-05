@@ -1,0 +1,14 @@
+services:
+  ai3-token-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      AI3_DB: /data/ai3.db
+      AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
+    volumes:
+      - ai3-data:/data
+
+volumes:
+  ai3-data:
