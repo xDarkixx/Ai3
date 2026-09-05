@@ -39,7 +39,14 @@ services:
       AI3_REFRESH_TOKEN_DAYS: ${AI3_REFRESH_TOKEN_DAYS:-30}
       AI3_RATE_LIMIT_RPM: ${AI3_RATE_LIMIT_RPM:-120}
       AI3_DAILY_REQUEST_LIMIT: ${AI3_DAILY_REQUEST_LIMIT:-0}
+      AI3_DDOS_IP_RPM: ${AI3_DDOS_IP_RPM:-120}
+      AI3_DDOS_MAX_CONCURRENT_PER_IP: ${AI3_DDOS_MAX_CONCURRENT_PER_IP:-20}
+      AI3_MAX_REQUEST_BYTES: ${AI3_MAX_REQUEST_BYTES:-2000000}
+      AI3_MAX_CHAT_STORAGE_BYTES: ${AI3_MAX_CHAT_STORAGE_BYTES:-2000000}
+      AI3_DATA_ENCRYPTION_KEY_FILE: /run/secrets/ai3_data_key
       AI3_BACKUP_DIR: /data/backups
+    secrets:
+      - ai3_data_key
     volumes:
       - ai3-data:/data
 
@@ -57,8 +64,15 @@ services:
       AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
       AI3_ADMIN_PASSWORD: ${AI3_ADMIN_PASSWORD:-}
       AI3_OLLAMA_URL: http://ollama:11434
+      AI3_DATA_ENCRYPTION_KEY_FILE: /run/secrets/ai3_data_key
+    secrets:
+      - ai3_data_key
     volumes:
       - ai3-data:/data
+
+secrets:
+  ai3_data_key:
+    file: ./secrets/ai3_data_encryption_key
 
 volumes:
   ai3-data:
