@@ -15,12 +15,10 @@ try:
     def _safe_verify_password(password: str, encoded: str) -> bool:
         try:
             algo, n, r, p, salt_hex, digest_hex = encoded.split("$", 5)
-            if algo != "scrypt":
-                return False
+            if algo != "scrypt": return False
             digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=int(n), r=int(r), p=int(p), dklen=32)
             return secrets.compare_digest(digest.hex(), digest_hex)
-        except (ValueError, TypeError):
-            return False
+        except (ValueError, TypeError): return False
 
     main.hash_password = _safe_hash_password
     main.verify_password = _safe_verify_password
@@ -32,27 +30,18 @@ try:
         from app import user_accounts
         user_accounts.hash_password = _safe_hash_password
         user_accounts.verify_password = _safe_verify_password
-        install_security(app)
-        install_runtime_controls(app)
-        user_accounts.install(app)
-        install_rate_limit(app)
+        install_security(app); install_runtime_controls(app); user_accounts.install(app); install_rate_limit(app)
 
     from app.chat_security import install as install_chat_security
     from app.ddos_protection import install as install_ddos_protection
-    install_chat_security(app)
-    install_ddos_protection(app)
-
+    install_chat_security(app); install_ddos_protection(app)
     from app.user_profile import install as install_user_profile
     install_user_profile(app)
-
     from app.account_security import install as install_account_security
     install_account_security(app)
-
-    from app.german_eid import install as install_german_eid
-    install_german_eid(app)
-
-    # Self-hosted EUDI Wallet verifier bridge; no commercial KYC provider.
-    from app.eudi_identity import install as install_eudi_identity
-    install_eudi_identity(app)
+    from app.own_verification import install as install_own_verification
+    install_own_verification(app)
+    from app.pki import install as install_pki
+    install_pki(app)
 except Exception:
     pass
