@@ -1,0 +1,22 @@
+# Optional public-internet deployment.
+# Use with a hostname you control and DNS pointing to this server:
+#   docker compose -f docker-compose.yml -f docker-compose.public.yml up -d --build
+# Only ports 80/443 are published by this overlay.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - ai3-token-server
+
+volumes:
+  caddy-data:
+  caddy-config:
