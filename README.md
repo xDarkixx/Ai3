@@ -1,136 +1,205 @@
-# AI3 — eigener Token-, API- und KI-Agent-Server
+# AI3 — eigener universeller KI-, Agent- und API-Gateway
 
-AI3 ist ein selbst gehosteter Token-, API- und KI-Gateway-Server für Benutzer, KI-Agenten und Services. Es benötigt für den lokalen Standardbetrieb keinen kostenpflichtigen Token-Dienst und keine kostenpflichtige Cloud-KI-API.
+AI3 ist ein selbst gehosteter Gateway für lokale KI-Modelle, KI-Agenten und OpenAI-kompatible Anwendungen. Der Standardstack benötigt keinen kostenpflichtigen KI-API-Anbieter.
+
+## Was AI3 kann
+
+- OpenAI-kompatible `/v1` API für Chat, Models, Responses und Embeddings
+- eigene `ai3_...` API-Tokens mit Scopes und Ablaufzeiten
+- Benutzer, Agents und Services als eigene Identitäten
+- Agent-Konfiguration mit Modell und Backend
+- lokale Modelle über Ollama
+- vorbereitete Backend-Abstraktion für Ollama, vLLM und llama.cpp
+- API Playground in der Weboberfläche
+- Usage-/Latenz-/Fehlerstatistik
+- OpenClaw-, Open WebUI- und Python/OpenAI-SDK-Verbindungsbeispiele
+- automatische Modellinitialisierung beim Docker-Start
+- SQLite ohne externe Datenbank
+- HTTPS-Deployment kann mit kostenloser Let's-Encrypt-Zertifikatsausstellung erfolgen
 
 ## Architektur
 
 ```text
-Browser / OpenClaw / KI-Agent / eigene App
-              |
-              v
-       +--------------+
-       | AI3 Web UI   |  :8080
-       | Token + Auth  |
-       | OpenAI API    |
-       +------+-------+
-              |
-       +------+----------------+
-       |                       |
-       v                       v
-  SQLite DB              AI3 API Server :8090
-       |                       |
-       +-----------+-----------+
-                   |
-                   v
-             Ollama :11434
-                   |
-                   v
-          lokales KI-Modell
+Internet / LAN
+      |
+      | HTTPS
+      v
++-------------------------+
+| AI3 Gateway :8080       |
+| Auth + Tokens + API     |
+| Web Command Center      |
++------------+------------+
+             |
+       OpenAI / Agent API
+             |
+     +-------+--------+
+     |                |
+ OpenClaw         Open WebUI
+ Apps / Bots      / Clients
+     |                |
+     +-------+--------+
+             |
+          AI3 Token
+             |
+      +------+------+
+      | Local Model |
+      |   Ollama    |
+      +-------------+
 ```
 
-Die SQLite-Datenbank liegt persistent im Docker-Volume `ai3-data`. Sie enthält Principals, Token-Metadaten, Modellstatus und API-Ereignisse. Geheimnisse der Tokens werden nicht im Klartext gespeichert.
+Der interne Verwaltungsdienst `8090` ist nicht als öffentlicher Client-Endpunkt gedacht. Ollama bleibt intern. Für Internetbetrieb sollte ausschließlich der AI3-Gateway-Port über einen HTTPS-Reverse-Proxy veröffentlicht werden.
 
-## Weboberfläche
-
-Die integrierte Oberfläche läuft unter:
-
-```text
-http://localhost:8080/
-```
-
-Sie enthält Dashboard, AI-Chat, Benutzer/Agents, Tokenverwaltung, Modelle und Verbindungsinformationen.
-
-## Eigener API-Server
-
-Zusätzlich gibt es jetzt einen eigenständigen AI3-API-Dienst auf Port `8090`:
-
-- `GET /health`
-- `GET /api/v1/status`
-- `GET /api/v1/models` — Token-geschützt
-- `POST /api/v1/models/pull` — Admin-Key geschützt
-
-Der API-Server verwendet dieselbe SQLite-Datenbank und denselben lokalen Ollama-Dienst wie AI3. Dadurch können eigene Programme und Agenten eine getrennte API-Adresse verwenden, ohne einen externen Tokenserver zu benötigen.
-
-## Automatische Modelle
-
-Beim Start lädt Docker Compose automatisch das in `AI3_MODEL` konfigurierte Modell herunter. Standardmäßig ist `llama3.2:3b` eingestellt.
-
-Zusätzlich kann der eigene API-Server ein Modell bei Ollama anfordern:
-
-```bash
-curl -X POST http://localhost:8090/api/v1/models/pull \
-  -H "X-AI3-Admin-Key: DEIN_ADMIN_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"llama3.2:3b"}'
-```
-
-Der Modellstatus wird in der Datenbank erfasst. Das Ollama-Volume bleibt persistent, sodass bereits geladene Modelle erhalten bleiben.
-
-## Token- und Agentensystem
-
-AI3 verwendet eigene Tokens mit `ai3_`-Prefix. Ein Token kann einem `user`, `agent` oder `service` gehören und Scopes besitzen, z. B.:
-
-- `ai:inference`
-- `agents:read`
-- `admin`
-
-Tokens können Ablaufzeiten besitzen und vom Admin widerrufen werden. Ein vollständiger Tokenwert wird nur bei der Erstellung zurückgegeben.
-
-## OpenAI-kompatible KI-API
-
-AI3 stellt unter `/v1` unter anderem bereit:
-
-- `GET /v1/models`
-- `GET /v1/models/{model}`
-- `POST /v1/chat/completions`
-- `POST /v1/responses`
-- `POST /v1/embeddings`
-
-Damit können OpenAI-kompatible Clients und lokale KI-Agenten gegen den eigenen AI3-Server arbeiten.
-
-## OpenClaw
-
-OpenClaw kann eigene OpenAI-kompatible Provider mit `baseUrl`, `apiKey` und `api: "openai-completions"` verwenden. citeturn0search1turn0search2
-
-Die vorhandene Vorlage befindet sich unter:
-
-```text
-openclaw/ai3-provider.example.json5
-```
-
-Das Setup-Skript erzeugt automatisch eine lokale Konfiguration mit dem eigenen AI3-Token.
-
-## Ohne kostenpflichtige KI-APIs
-
-Der Standardstack besteht aus AI3 + Ollama + lokalem Modell. Ollama bietet eine OpenAI-kompatible API und kann lokal per Docker betrieben werden. citeturn0search0turn0search9
-
-Damit fallen für die KI-Nutzung keine Gebühren eines externen KI-API-Anbieters an. Natürlich können Strom-, Hardware-, Internet- oder Serverkosten entstehen.
-
-## Schnellstart
+## Schnellstart — lokal und ohne externe KI-Gebühren
 
 ```bash
 chmod +x scripts/setup-local.sh
 ./scripts/setup-local.sh
 ```
 
-Danach:
-
-```text
-Web UI:   http://localhost:8080/
-API:      http://localhost:8090/
-AI API:   http://localhost:8080/v1
-```
-
-Das Setup startet Ollama, lädt das Standardmodell, startet AI3 und erstellt den ersten Agenten samt AI3-Token.
-
-## Docker Compose
+Oder manuell:
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-Ollama ist standardmäßig nur im internen Docker-Netzwerk erreichbar. Nach außen werden AI3 und der separate API-Server bereitgestellt.
+Standardmäßig wird `llama3.2:3b` geladen. Die Modelle liegen persistent im Docker-Volume `ollama-data`.
+
+Weboberfläche:
+
+```text
+http://localhost:8080/
+```
+
+OpenAI-kompatible API:
+
+```text
+http://localhost:8080/v1
+```
+
+## OpenAI-kompatible Endpunkte
+
+AI3 stellt diese zentrale Kompatibilitätsfläche bereit:
+
+- `GET /v1/models`
+- `GET /v1/models/{id}`
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `POST /v1/embeddings`
+
+Diese Auswahl entspricht der wichtigen OpenAI-kompatiblen Oberfläche, die aktuelle Agent-/WebUI-Integrationen nutzen. citeturn0search1turn0search4
+
+Beispiel:
+
+```bash
+curl http://localhost:8080/v1/models \
+  -H "Authorization: Bearer YOUR_AI3_TOKEN"
+```
+
+## Python / OpenAI SDK
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="YOUR_AI3_TOKEN",
+)
+
+result = client.chat.completions.create(
+    model="llama3.2:3b",
+    messages=[{"role": "user", "content": "Hallo AI3"}],
+)
+
+print(result.choices[0].message.content)
+```
+
+## OpenClaw
+
+OpenClaw unterstützt eine OpenAI-kompatible Gateway-Oberfläche mit `/v1/models`, `/v1/chat/completions`, `/v1/embeddings` und `/v1/responses`. Eigene Provider können über eine Base-URL und einen Bearer-Key eingebunden werden. citeturn0search1turn0search3
+
+AI3 stellt dafür eine Vorlage bereit:
+
+```text
+openclaw/ai3-provider.example.json5
+```
+
+Beispielprinzip:
+
+```json5
+{
+  models: {
+    providers: {
+      ai3: {
+        baseUrl: "https://DEIN-AI3-HOST/v1",
+        apiKey: "YOUR_AI3_TOKEN",
+        api: "openai-completions",
+        models: [
+          { id: "llama3.2:3b", name: "AI3 Local" }
+        ]
+      }
+    }
+  }
+}
+```
+
+## Open WebUI
+
+Open WebUI kann OpenAI-kompatible Server als Provider verwenden. Dadurch kann AI3 als eigene Backend-URL vor Open WebUI stehen. citeturn0search0
+
+```text
+URL:      https://DEIN-AI3-HOST/v1
+API-Key:  YOUR_AI3_TOKEN
+Modell:   dein lokales Modell
+```
+
+## Agents
+
+Jeder Agent kann eine eigene Identität und ein eigenes Token erhalten. Zusätzlich kann AI3 pro Agent folgende Routingdaten speichern:
+
+- Modell
+- Backend: `ollama`, `vllm`, `llamacpp` oder `openai-compatible`
+- System-Prompt
+
+Die Konfiguration ist absichtlich von der Authentifizierung getrennt, damit ein Agent mehrere Clients bedienen kann, ohne dass dessen geheimes Token in der Modellkonfiguration gespeichert werden muss.
+
+## Usage
+
+AI3 protokolliert intern:
+
+- Endpoint
+- HTTP-Status
+- Latenz
+- zugeordneten Principal, sofern ein AI3-Bearer-Token verwendet wurde
+
+Die Weboberfläche zeigt daraus Requests, Fehlerquote, durchschnittliche Latenz und Endpoint-Nutzung.
+
+## Internetbetrieb
+
+Für einen öffentlichen AI3-Server:
+
+1. eigene Maschine oder eigenen Server verwenden
+2. AI3 intern auf `8080` betreiben
+3. HTTPS-Reverse-Proxy davor setzen
+4. Port `8090` und Ollama **nicht** öffentlich freigeben
+5. einen langen zufälligen `AI3_ADMIN_KEY` verwenden
+6. pro Agent eigene Tokens mit minimalen Scopes erzeugen
+7. Rate-Limiting und Firewall aktivieren
+8. keine Secrets in Git committen
+
+Ein eigener Domainname ist praktisch, aber nicht zwingend für das Protokoll. Die tatsächlichen Kosten hängen von Hardware, Strom, Internetanschluss und einer eventuell verwendeten Domain ab. Für die KI selbst ist im lokalen Betrieb kein bezahlter KI-API-Dienst erforderlich.
+
+## Backend-Strategie
+
+**Ollama** ist der Standard, weil es lokal einfach zu betreiben ist. Für leistungsfähigere GPUs kann später ein OpenAI-kompatibler **vLLM**-Server als Backend verwendet werden; vLLM stellt ebenfalls einen OpenAI-kompatiblen HTTP-Server bereit. citeturn0search6
+
+Die AI3-API bleibt dabei gleich:
+
+```text
+Client → AI3 → Backend → Modell
+```
+
+Ein Client muss also nicht wissen, ob dahinter Ollama, vLLM, llama.cpp oder ein anderer kompatibler Server läuft.
 
 ## Tests
 
@@ -139,15 +208,10 @@ python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
-Die GitHub-Actions-Pipeline führt die automatisierten Tests bei Änderungen an `main` aus.
+Die GitHub-Actions-Pipeline testet die Python-Anwendung automatisch. Zusätzlich sollte vor einer öffentlichen Freigabe ein echter Docker-Smoke-Test mit Ollama durchgeführt werden.
 
 ## Sicherheit
 
-- Tokenwerte werden als SHA-256-Hash gespeichert.
-- Der Admin-Key wird nicht in Git gespeichert.
-- Generierte OpenClaw-Credentials werden ignoriert.
-- Ollama muss nicht öffentlich erreichbar sein.
-- Für einen öffentlichen Server HTTPS und eine Firewall/Reverse-Proxy verwenden.
-- Für produktive Agenten eigene Tokens mit minimalen Scopes verwenden.
+AI3 speichert Tokenwerte nicht im Klartext, sondern als Hash. Der vollständige Token wird nur bei der Erstellung ausgegeben. Der Admin-Key ist ausschließlich für Verwaltung gedacht und darf nicht als Client-API-Key verwendet werden.
 
-AI3 ist damit die zentrale eigene Schicht für **Authentifizierung, Tokens, Agenten, API-Zugriff, lokale Modelle und Webverwaltung** — ohne einen vorgeschalteten kostenpflichtigen Tokenserver.
+Für öffentlich erreichbare Installationen gilt: **HTTPS + Firewall + Rate-Limit + minimale Token-Scopes**. OpenAI-kompatible Agent-Gateways können weitreichende Fähigkeiten bereitstellen; deshalb sollte ein Internet-Gateway niemals ohne Authentifizierung veröffentlicht werden. Aktuelle OpenClaw-Dokumentation weist ebenfalls ausdrücklich auf die Bedeutung der Authentifizierungsgrenze hin. citeturn0search1
