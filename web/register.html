@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070b18">
+  <title>AI3 // Konto</title>
+  <link rel="stylesheet" href="/web/style.css">
+  <style>
+    body{min-height:100vh;display:grid;place-items:center;padding:24px}
+    .auth-shell{width:min(980px,100%);display:grid;grid-template-columns:1.1fr .9fr;gap:20px}
+    .auth-card{padding:32px}
+    .auth-card h1{margin:.2em 0 .3em}
+    .auth-card p{color:var(--muted,#9aa4bd)}
+    .auth-form{display:grid;gap:14px;margin-top:22px}
+    .auth-form label{display:grid;gap:7px}
+    .auth-form input{width:100%;box-sizing:border-box}
+    .auth-form button{margin-top:8px}
+    .message{margin-top:16px;padding:12px;border-radius:10px;display:none;white-space:pre-wrap}
+    .message.show{display:block}
+    .message.error{border:1px solid #8f3d4c}
+    .message.ok{border:1px solid #397d5b}
+    .account{display:none}
+    .account.show{display:block}
+    .token{font-family:monospace;word-break:break-all;padding:14px;border-radius:10px;border:1px solid #34405c;margin-top:12px}
+    .muted{font-size:.9rem}
+    @media(max-width:760px){.auth-shell{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="auth-shell">
+    <section class="panel auth-card">
+      <div class="eyebrow">AI3 / SELF-HOSTED AI GATEWAY</div>
+      <h1>Konto erstellen</h1>
+      <p>Registriere dich direkt auf deinem AI3-Server. Danach kannst du eigene Agents anlegen und persönliche API-Tokens erzeugen.</p>
+      <form id="registerForm" class="auth-form" autocomplete="on">
+        <label>Benutzername
+          <input name="username" minlength="3" maxlength="100" pattern="[A-Za-z0-9._-]+" autocomplete="username" required placeholder="meinname">
+        </label>
+        <label>E-Mail <span class="muted">(optional)</span>
+          <input name="email" type="email" maxlength="320" autocomplete="email" placeholder="name@example.de">
+        </label>
+        <label>Passwort
+          <input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required placeholder="mindestens 12 Zeichen">
+        </label>
+        <label>Passwort wiederholen
+          <input name="password2" type="password" minlength="12" maxlength="256" autocomplete="new-password" required placeholder="Passwort bestätigen">
+        </label>
+        <button type="submit">Konto erstellen →</button>
+      </form>
+      <div id="registerMessage" class="message"></div>
+    </section>
+
+    <section class="panel auth-card">
+      <div class="eyebrow">EXISTING ACCOUNT</div>
+      <h2>Anmelden</h2>
+      <p>Mit deinem AI3-Benutzerkonto anmelden.</p>
+      <form id="loginForm" class="auth-form" autocomplete="on">
+        <label>Benutzername
+          <input name="username" autocomplete="username" required>
+        </label>
+        <label>Passwort
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="secondary">Anmelden</button>
+      </form>
+      <div id="loginMessage" class="message"></div>
+
+      <div id="account" class="account">
+        <hr>
+        <div class="eyebrow">USER AREA</div>
+        <h3 id="accountName">—</h3>
+        <p id="accountEmail">—</p>
+        <button id="createAgent">＋ Agent erstellen</button>
+        <div id="agentResult" class="message"></div>
+        <button id="createToken" class="secondary" disabled>Token für Agent erstellen</button>
+        <div id="tokenResult" class="message"></div>
+        <button id="logout" class="ghost">Abmelden</button>
+      </div>
+
+      <p class="muted" style="margin-top:24px">Öffentliche Nutzung: HTTPS vor den Server setzen. Admin-Schlüssel niemals an andere Benutzer weitergeben.</p>
+      <a href="/web/index.html">← AI3 Command Center</a>
+    </section>
+  </div>
+<script>
+const $=s=>document.querySelector(s);
+let session=sessionStorage.getItem('ai3_user_session')||'';
+let selectedAgent=null;
+function msg(id,text,ok=false){const e=$(id);e.textContent=text;e.className='message show '+(ok?'ok':'error')}
+async function request(path,options={}){options.headers={...(options.headers||{}),'Content-Type':'application/json'};if(session)options.headers['X-AI3-User-Session']=session;const r=await fetch(path,options);const text=await r.text();let d;try{d=JSON.parse(text)}catch{d={detail:text}}if(!r.ok)throw new Error(d.detail||'Anfrage fehlgeschlagen');return d}
+async function loadAccount(){if(!session)return;try{const d=await request('/v1/user/me');$('#accountName').textContent=d.username;$('#accountEmail').textContent=d.email||'Keine E-Mail hinterlegt';$('#account').classList.add('show');}catch{session='';sessionStorage.removeItem('ai3_user_session')}}
+$('#registerForm').onsubmit=async e=>{e.preventDefault();const f=e.target;if(f.password.value!==f.password2.value)return msg('#registerMessage','Die Passwörter stimmen nicht überein.');try{await request('/v1/auth/register',{method:'POST',body:JSON.stringify({username:f.username.value.trim(),email:f.email.value.trim()||null,password:f.password.value})});msg('#registerMessage','Konto wurde erstellt. Du kannst dich jetzt anmelden.',true);$('#loginForm [name=username]').value=f.username.value.trim();f.reset()}catch(x){msg('#registerMessage',x.message)}};
+$('#loginForm').onsubmit=async e=>{e.preventDefault();const f=e.target;try{const d=await request('/v1/auth/login',{method:'POST',body:JSON.stringify({username:f.username.value.trim(),password:f.password.value})});session=d.session;sessionStorage.setItem('ai3_user_session',session);msg('#loginMessage','Erfolgreich angemeldet.',true);await loadAccount()}catch(x){msg('#loginMessage',x.message)}};
+$('#createAgent').onclick=async()=>{const name=prompt('Name für den Agent (z.B. openclaw):','openclaw');if(!name)return;try{const d=await request('/v1/user/agents',{method:'POST',body:JSON.stringify({name:name.trim()})});selectedAgent=d.id;$('#createToken').disabled=false;msg('#agentResult','Agent erstellt: '+d.name,true)}catch(x){msg('#agentResult',x.message)}};
+$('#createToken').onclick=async()=>{if(!selectedAgent)return;try{const d=await request('/v1/user/agents/'+selectedAgent+'/tokens',{method:'POST'});msg('#tokenResult','TOKEN – nur jetzt sichtbar. Sicher speichern:\n'+d.token,true)}catch(x){msg('#tokenResult',x.message)}};
+$('#logout').onclick=async()=>{try{await request('/v1/auth/logout',{method:'POST'})}catch{}session='';sessionStorage.removeItem('ai3_user_session');location.reload()};
+loadAccount();
+</script>
+</body>
+</html>
