@@ -6,12 +6,21 @@ AI3 ist ein selbst gehostetes Gateway für lokale KI-Modelle, KI-Agenten, Benutz
 
 ## 🚀 Ziel: One-Click-Betrieb
 
+### Passendes Betriebssystem
+
+Der One-Click-Installer ist für **Ubuntu Server 24.04 LTS, 64-bit AMD64 (Noble Numbat)** ausgelegt. Die aktuelle 24.04-Reihe ist Ubuntu 24.04.4; das passende offizielle Image ist `ubuntu-24.04.4-live-server-amd64.iso`. citeturn0view0
+
+- [Ubuntu 24.04.4 Release-Seite](https://releases.ubuntu.com/24.04/)
+- Detaillierte AI3-Anleitung: [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md)
+- Optionaler Download + SHA256-Prüfung: `scripts/download-ubuntu.sh`
+
 Auf Ubuntu 24.04 LTS ist der Zielablauf:
 
-1. Repository bereitstellen.
-2. `scripts/install-ubuntu.sh` ausführen.
-3. Router/Firewall-Portweiterleitungen einmalig auf diesen PC setzen.
-4. AI3 startet selbstständig und überwacht seine LAN-Adresse.
+1. Ubuntu Server installieren.
+2. AI3-Repository bereitstellen.
+3. `scripts/install-ubuntu.sh` ausführen.
+4. Router/Firewall-Portweiterleitungen einmalig auf diesen PC setzen.
+5. AI3 startet selbstständig und überwacht seine LAN-Adresse.
 
 Der Installer installiert Docker/Compose, erkennt NVIDIA-GPUs, richtet Ollama und das lokale Modell ein, erzeugt Secrets, startet AI3/Caddy/Mail, richtet den automatischen LAN-Watcher ein, prüft die Dienste und erzeugt die OpenClaw-Konfiguration.
 
@@ -24,19 +33,21 @@ Alle produktiven Container verwenden `restart: unless-stopped`, damit sie nach e
 
 ## 🔄 Automatische Netzwerk-Selbstheilung
 
-AI3 benötigt keine fest eingetragene LAN-IP. `scripts/network-refresh.sh` erkennt automatisch PC-Name, aktuelle IPv4, Netzwerkinterface und Gateway. Ein systemd-Dienst aktualisiert die Identität beim Boot; ein Timer prüft sie anschließend regelmäßig. systemd-Timer sind dafür als periodische Aktivierung von Services vorgesehen. citeturn0search0
+AI3 benötigt keine fest eingetragene LAN-IP. `scripts/network-refresh.sh` erkennt automatisch PC-Name, aktuelle IPv4, Netzwerkinterface und Gateway. Ein systemd-Dienst aktualisiert die Identität beim Boot; ein Timer prüft sie anschließend regelmäßig. citeturn0search0
+
+Zusätzlich stellt AI3 der Weboberfläche ausschließlich harmlose Netzwerk-Metadaten über `/__ai3/network-info.json` bereit. Geheimnisse, Admin-Schlüssel und `.env` werden niemals über diese Route veröffentlicht.
 
 Wenn der Router beispielsweise DHCP neu vergibt und der PC von `192.168.178.50` auf `192.168.178.73` wechselt, aktualisiert AI3 automatisch die gespeicherte LAN-IP und bei Bedarf nur Caddy. Ollama, Datenbank und die übrigen AI3-Dienste müssen dafür nicht neu gestartet werden.
 
-Im Diagnosebereich werden PC-Name, aktuelle IP und das erforderliche Router-Ziel angezeigt:
+Die System-Oberfläche zeigt live:
 
 ```text
 PC-Name:        AI3-PC
 Aktuelle IP:    192.168.178.73
+Router/Gateway: 192.168.178.1
 Router-Ziel:    TCP 80/443 -> 192.168.178.73
 
-[ Router öffnen ]
-[ Anleitung anzeigen ]
+[ Router öffnen ] [ Anleitung ] [ Jetzt prüfen ]
 ```
 
 **Router-Portfreigaben werden absichtlich nicht automatisch verändert.** Du wählst im Router einmal den AI3-PC als Zielgerät und leitest die benötigten Ports weiter. AI3 verändert weder Router-Einstellungen noch öffnet selbstständig zusätzliche Ports.
@@ -95,7 +106,9 @@ Das Control Center bündelt:
 - HTTPS
 - Backups
 - Sicherheitsstatus
-- Netzwerkstatus und LAN-IP
+- **Live-System- und Netzwerkstatus**
+- **LAN-IP, PC-Name, Gateway und Adapter**
+- **Router öffnen + Portweiterleitungs-Anleitung**
 - Diagnose/Healthchecks
 
 ## 🔏 Eigene PKI
@@ -114,7 +127,7 @@ Der Standardbetrieb ist auf **0 € für externe KI-, KYC-, SMTP- und Zertifikat
 
 Enthalten sind unter anderem Token-Scopes, Ablaufzeiten, Admin-Sessions, Verschlüsselung, Rate-Limits, IP-/Concurrency-Schutz, HTTP-Sicherheitsheader, eigene PKI, Zertifikatswiderruf und lokale Backups.
 
-Für einen öffentlichen Server muss die Firewall weiterhin restriktiv betrieben werden. Ein Router kann die benötigten Ports auf den AI3-Server weiterleiten. AI3 übernimmt bewusst nicht die automatische Router-Konfiguration.
+Für einen öffentlichen Server muss die Firewall weiterhin restriktiv betrieben werden. Ein Router kann die benötigten Ports auf den AI3-Server weiterleiten. AI3 übernimmt bewusst nicht die automatische Router-Konfiguration. Anwendungsschutz und Rate-Limits ersetzen keinen vorgeschalteten volumetrischen DDoS-Schutz des Internetproviders.
 
 ## 📦 Neustartverhalten
 
