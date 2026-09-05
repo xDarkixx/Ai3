@@ -11,12 +11,26 @@ check "Compose GPU-Konfiguration" docker compose -f docker-compose.yml -f docker
 check "Mail Compose-Konfiguration" docker compose -f mail/docker-compose.yml config -q
 
 LAN_HOSTNAME="$(grep '^AI3_LAN_HOSTNAME=' .env 2>/dev/null | cut -d= -f2- || hostname -s 2>/dev/null || hostname)"
-LAN_IP="$(grep '^AI3_LAN_IP=' .env 2>/dev/null | cut -d= -f2- || true)"
-LAN_IP="${LAN_IP:-127.0.0.1}"
-echo "[INFO] LAN-PC: $LAN_HOSTNAME ($LAN_IP)"
-echo "[INFO] Router: TCP 80/443 -> $LAN_IP"
+STORED_IP="$(grep '^AI3_LAN_IP=' .env 2>/dev/null | cut -d= -f2- || true)"
+CURRENT_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')"
+CURRENT_IP="${CURRENT_IP:-$(hostname -I 2>/dev/null | awk '{print $1}') }"
+CURRENT_IP="${CURRENT_IP// /}"
+CURRENT_IP="${CURRENT_IP:-127.0.0.1}"
+echo "[INFO] LAN-PC: $LAN_HOSTNAME"
+echo "[INFO] gespeicherte LAN-IP: ${STORED_IP:-unbekannt}"
+echo "[INFO] aktuelle LAN-IP:    $CURRENT_IP"
+echo "[INFO] Router-Ziel: TCP 80/443 -> $CURRENT_IP"
+if [ -n "$STORED_IP" ] && [ "$STORED_IP" = "$CURRENT_IP" ]; then
+  echo "[OK]   LAN-IP aktuell"
+elif [ -n "$STORED_IP" ]; then
+  echo "[WARN] LAN-IP hat sich geändert – network-refresh.sh ausführen"
+fi
 
-# Caddy may need a few seconds after Compose startup; retry the local health endpoint.
+if command -v systemctl >/dev/null 2>&1; then
+  if systemctl is-enabled --quiet ai3-network-refresh.timer 2>/dev/null; then echo "[OK]   Automatischer LAN-Watcher aktiviert"; else echo "[WARN] Automatischer LAN-Watcher nicht aktiviert"; fi
+  if systemctl is-active --quiet ai3-network-refresh.timer 2>/dev/null; then echo "[OK]   LAN-Watcher läuft"; else echo "[WARN] LAN-Watcher läuft nicht"; fi
+fi
+
 health_ok=0
 for _ in $(seq 1 30); do
   if curl -kfsS https://localhost/health >/dev/null 2>&1; then health_ok=1; break; fi
@@ -33,4 +47,4 @@ if command -v nvidia-smi >/dev/null 2>&1; then if docker run --rm --gpus all nvi
 if [ -f .env ]; then perms="$(stat -c '%a' .env 2>/dev/null || true)"; if [ "$perms" = "600" ]; then echo "[OK]   .env ist geschützt (600)"; else echo "[WARN] .env hat Rechte $perms; empfohlen ist 600"; fi; else echo "[WARN] .env fehlt"; fi
 if [ -f openclaw/ai3-provider.generated.json5 ]; then echo "[OK]   OpenClaw-Konfiguration vorhanden"; else echo "[WARN] OpenClaw-Konfiguration fehlt"; fi
 if [ "$fail" -ne 0 ]; then echo ""; echo "AI3-Diagnose: mindestens eine Pflichtprüfung ist fehlgeschlagen."; echo "Logs: docker compose logs --tail=150"; exit 1; fi
-echo ""; echo "AI3-Diagnose: Pflichtprüfungen erfolgreich. Warnungen bitte vor öffentlicher Mailzustellung prüfen."
+echo ""; echo "AI3-Diagnose: Pflichtprüfungen erfolgreich. Router-Portfreigaben bleiben bewusst manuell."
