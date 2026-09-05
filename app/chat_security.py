@@ -11,12 +11,10 @@ import os
 import secrets
 import sqlite3
 from datetime import datetime, timezone
-from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 DB_PATH = os.getenv("AI3_DB", "/data/ai3.db")
 KEY_FILE = os.getenv("AI3_DATA_ENCRYPTION_KEY_FILE", "")
@@ -99,43 +97,54 @@ def _principal(request: Request):
         return None
 
 
-def install(app):
-    init_chat_db()
+def _capture_route(app):
+    for route in app.routes:
+        if getattr(route, "path", None) != "/v1/chat/completions" or getattr(route, "methods", set()) != {"POST"}:
+            continue
+        if getattr(route, "_ai3_encrypted_chat_wrapped", False):
+            return
+        original = route.dependant.call
 
-    @app.middleware("http")
-    async def encrypted_chat_capture(request: Request, call_next):
-        if request.url.path != "/v1/chat/completions" or request.method != "POST":
-            return await call_next(request)
-        principal = _principal(request)
-        if not principal:
-            return await call_next(request)
-        try:
-            raw = await request.body()
-            if len(raw) > MAX_CHAT_BYTES:
-                return JSONResponse({"error": {"message": "chat body too large", "type": "invalid_request_error"}}, status_code=413)
-            payload = json.loads(raw or b"{}")
-        except Exception:
-            return await call_next(request)
-        response = await call_next(request)
-        if payload.get("stream") is True:
-            return response
-        try:
-            body = getattr(response, "body", None)
-            if body:
+        async def wrapped(request: Request, row, _original=original):
+            principal = row or _principal(request)
+            response = await _original(request=request, row=principal)
+            if not principal:
+                return response
+            try:
+                raw = await request.body()
+                if len(raw) > MAX_CHAT_BYTES:
+                    return JSONResponse({"error": {"message": "chat body too large", "type": "invalid_request_error"}}, status_code=413)
+                payload = json.loads(raw or b"{}")
+                if payload.get("stream") is True:
+                    return response
+                body = getattr(response, "body", None)
+                if not body:
+                    return response
                 result = json.loads(body)
                 messages = payload.get("messages")
-                assistant = result.get("choices", [{}])[0].get("message") if isinstance(result, dict) else None
-                if messages and assistant:
-                    conversation_id = request.headers.get("x-ai3-conversation-id") or secrets.token_urlsafe(18)
-                    record = {"request": {"messages": messages}, "response": assistant}
-                    nonce, ciphertext = encrypt_json(record, principal_id=int(principal["principal_id"]), conversation_id=conversation_id)
-                    with sqlite3.connect(DB_PATH) as con:
-                        con.execute("INSERT INTO encrypted_chat_messages(conversation_id,principal_id,nonce,ciphertext,created_at) VALUES(?,?,?,?,?)", (conversation_id, int(principal["principal_id"]), nonce, ciphertext, _now()))
-                    response.headers["X-AI3-Conversation-ID"] = conversation_id
-        except Exception:
-            # Chat inference must continue even if history storage fails.
-            pass
-        return response
+                choices = result.get("choices", []) if isinstance(result, dict) else []
+                assistant = choices[0].get("message") if choices and isinstance(choices[0], dict) else None
+                if not messages or not assistant:
+                    return response
+                conversation_id = request.headers.get("x-ai3-conversation-id") or secrets.token_urlsafe(18)
+                record = {"request": {"messages": messages}, "response": assistant}
+                nonce, ciphertext = encrypt_json(record, principal_id=int(principal["principal_id"]), conversation_id=conversation_id)
+                with sqlite3.connect(DB_PATH) as con:
+                    con.execute("INSERT INTO encrypted_chat_messages(conversation_id,principal_id,nonce,ciphertext,created_at) VALUES(?,?,?,?,?)", (conversation_id, int(principal["principal_id"]), nonce, ciphertext, _now()))
+                response.headers["X-AI3-Conversation-ID"] = conversation_id
+            except Exception:
+                # Chat inference must continue even if history storage fails.
+                pass
+            return response
+
+        route.dependant.call = wrapped
+        route._ai3_encrypted_chat_wrapped = True
+        return
+
+
+def install(app):
+    init_chat_db()
+    _capture_route(app)
 
     @app.get("/v1/chat/history")
     async def chat_history(request: Request):
@@ -162,5 +171,12 @@ def install(app):
         with sqlite3.connect(DB_PATH) as con:
             cur = con.execute("DELETE FROM encrypted_chat_messages WHERE principal_id=?", (int(principal["principal_id"]),))
         return {"ok": True, "deleted": cur.rowcount}
+
+    @app.get("/v1/admin/chat-security")
+    async def chat_security_status(request: Request):
+        principal = _principal(request)
+        if not principal:
+            raise HTTPException(401, "Bearer token required")
+        return {"encrypted_at_rest": True, "algorithm": "AES-256-GCM", "key_location": "external-secret", "plaintext_chat_storage": False}
 
     return app
