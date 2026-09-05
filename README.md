@@ -1,6 +1,27 @@
 # AI3 — eigener universeller KI-, Agent- und API-Gateway
 
-AI3 ist ein selbst gehosteter Gateway für lokale KI-Modelle, KI-Agenten und OpenAI-kompatible Anwendungen. Der Standardstack benötigt keinen kostenpflichtigen KI-API-Anbieter.
+AI3 ist ein selbst gehosteter Gateway für lokale KI-Modelle, KI-Agenten und OpenAI-kompatible Anwendungen. **Branding: xDarkixx. Copyright © 2026 xDarkixx.** Der Standardstack benötigt keinen kostenpflichtigen KI-API-Anbieter.
+
+## Für andere Nutzer / Clients
+
+AI3 ist dafür gebaut, dass **andere Personen, Agents und Programme** ihn wie einen normalen KI-Provider benutzen können:
+
+```text
+Client / OpenClaw / Open WebUI / Bot / App
+                    |
+                    | HTTPS + AI3 Bearer Token
+                    v
+             https://DEIN-HOST/v1
+                    |
+                    v
+             AI3 Gateway
+                    |
+             lokales Backend
+                    |
+                 Modell
+```
+
+Jeder Nutzer/Agent/Service bekommt eine eigene Identität und einen eigenen Token. Dadurch muss kein gemeinsamer Admin-Schlüssel verteilt werden. OpenClaw unterstützt genau solche benutzerdefinierten OpenAI-kompatiblen Provider mit `baseUrl`, API-Key und `openai-completions`. citeturn0search0turn0search4
 
 ## Was AI3 kann
 
@@ -15,45 +36,36 @@ AI3 ist ein selbst gehosteter Gateway für lokale KI-Modelle, KI-Agenten und Ope
 - vorbereitete Backend-Abstraktion für Ollama, vLLM und llama.cpp
 - API Playground in der Weboberfläche
 - Usage-/Latenz-/Fehlerstatistik
-- OpenClaw-, Open WebUI- und Python/OpenAI-SDK-Verbindungsbeispiele
 - automatische Modellinitialisierung beim Docker-Start
 - SQLite ohne externe Datenbank
-- Admin-Datenbank-Backups über SQLite Online Backup
-- HTTPS-Deployment kann mit kostenloser Let's-Encrypt-Zertifikatsausstellung erfolgen
+- Admin-Datenbank-Backups
+- Live-Limits und Quoten
+- modernes responsives Command-Center-Design
+- Copyright-/Rechtshinweise direkt in der Oberfläche
+- HTTPS-Deployment mit einem kostenlosen Let's-Encrypt-Zertifikat möglich
 
-## Architektur
+## Limits und „unbegrenzt“
 
-```text
-Internet / LAN
-      |
-      | HTTPS
-      v
-+-------------------------+
-| AI3 Gateway :8080       |
-| Auth + Tokens + API     |
-| Web Command Center      |
-+------------+------------+
-             |
-       OpenAI / Agent API
-             |
-     +-------+--------+
-     |                |
- OpenClaw         Open WebUI
- Apps / Bots      / Clients
-     |                |
-     +-------+--------+
-             |
-          AI3 Token
-             |
-      +------+------+
-      | Local Model |
-      |   Ollama    |
-      +-------------+
-```
+In **System → Limits & Kontingente** können die Laufzeitlimits eingestellt werden:
 
-Der interne Verwaltungsdienst `8090` ist nicht als öffentlicher Client-Endpunkt gedacht. Ollama bleibt intern. Für Internetbetrieb sollte ausschließlich der AI3-Gateway-Port über einen HTTPS-Reverse-Proxy veröffentlicht werden.
+- Requests pro Minute
+- Requests pro 24 Stunden
 
-## Schnellstart — lokal und ohne externe KI-Gebühren
+**`0 = unbegrenzt`.** Die Änderungen werden ohne Neustart für neue Requests übernommen. Mit **„Alles unbegrenzt“** werden die beiden aktiven Limits auf 0 gesetzt.
+
+Für einen öffentlichen Server wird empfohlen, Limits zu aktivieren. Für einen privaten Server kann 0/unbegrenzt verwendet werden. Infrastrukturressourcen bleiben natürlich trotzdem begrenzt durch CPU, RAM, GPU, Speicher und Netzwerk.
+
+## Branding und Rechtliches
+
+AI3 trägt sichtbar die Kennzeichnung **„AI3 — BY XDARKIXX“** sowie **© 2026 xDarkixx — AI3**. Zusätzlich gibt es in der Weboberfläche eine Seite **„Rechtliches“** und im Repository `LEGAL.md`.
+
+Die dortigen Hinweise sind keine Rechtsberatung. Für eine öffentliche Instanz müssen insbesondere Betreiberangaben/Impressum, Datenschutzerklärung, Aufbewahrungs- und Löschregeln sowie die Lizenzen verwendeter Modelle und Drittanbieter geprüft und an den konkreten Betreiber angepasst werden.
+
+## Kosten
+
+AI3 kann vollständig lokal mit Open-Source-Modellen betrieben werden, sodass kein bezahlter KI-API-Anbieter notwendig ist. Das ist **0 € für den KI-Provider**, nicht automatisch 0 € Gesamtbetriebskosten. Hardware, Strom, Internet, Hosting, Domain und gegebenenfalls Modell-/Softwarelizenzen können Kosten verursachen.
+
+## Schnellstart
 
 ```bash
 chmod +x scripts/setup-local.sh
@@ -67,23 +79,9 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Standardmäßig wird `llama3.2:3b` geladen. Die Modelle liegen persistent im Docker-Volume `ollama-data`.
-
-Weboberfläche:
-
-```text
-http://localhost:8080/
-```
-
-OpenAI-kompatible API:
-
-```text
-http://localhost:8080/v1
-```
+Standardmäßig wird `llama3.2:3b` geladen. Weboberfläche und API sind anschließend unter dem AI3-Host erreichbar.
 
 ## OpenAI-kompatible Endpunkte
-
-AI3 stellt diese zentrale Kompatibilitätsfläche bereit:
 
 - `GET /v1/models`
 - `GET /v1/models/{id}`
@@ -91,44 +89,7 @@ AI3 stellt diese zentrale Kompatibilitätsfläche bereit:
 - `POST /v1/responses`
 - `POST /v1/embeddings`
 
-Diese Oberfläche passt zu aktuellen OpenClaw-Custom-Provider-Konfigurationen mit `baseUrl`, Bearer-Key und `openai-completions`. citeturn0search0turn0search4
-
-Beispiel:
-
-```bash
-curl http://localhost:8080/v1/models \
-  -H "Authorization: Bearer YOUR_AI3_TOKEN"
-```
-
-## Python / OpenAI SDK
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://localhost:8080/v1",
-    api_key="YOUR_AI3_TOKEN",
-)
-
-result = client.chat.completions.create(
-    model="llama3.2:3b",
-    messages=[{"role": "user", "content": "Hallo AI3"}],
-)
-
-print(result.choices[0].message.content)
-```
-
 ## OpenClaw
-
-OpenClaw unterstützt benutzerdefinierte Provider mit Base-URL, API-Key und OpenAI-Kompatibilität. Für lokale oder selbst gehostete `/v1`-Backends ist `openai-completions` der passende Adapter. citeturn0search0turn0search6
-
-AI3 stellt dafür eine Vorlage bereit:
-
-```text
-openclaw/ai3-provider.example.json5
-```
-
-Beispielprinzip:
 
 ```json5
 {
@@ -138,101 +99,49 @@ Beispielprinzip:
         baseUrl: "https://DEIN-AI3-HOST/v1",
         apiKey: "YOUR_AI3_TOKEN",
         api: "openai-completions",
-        models: [
-          { id: "llama3.2:3b", name: "AI3 Local" }
-        ]
+        models: [{ id: "llama3.2:3b", name: "AI3 Local" }]
       }
     }
   }
 }
 ```
 
-## OAuth2-artige Tokenverwaltung
+OpenClaw dokumentiert benutzerdefinierte Provider und lokale OpenAI-kompatible Backends offiziell. citeturn0search0turn0search10
 
-Zusätzlich zu den direkten `ai3_...` API-Tokens besitzt AI3 jetzt einen eigenen OAuth2-artigen Tokenfluss für Maschinen und Agenten:
+## OAuth2-artige Tokenverwaltung
 
 - `POST /v1/admin/oauth/clients` — OAuth-Client anlegen
 - `POST /oauth/token` — `client_credentials` oder `refresh_token`
-- `POST /oauth/revoke` — Access-/Refresh-Token widerrufen
+- `POST /oauth/revoke` — Token widerrufen
 - `GET /v1/admin/oauth/clients` — Clients verwalten
 - `DELETE /v1/admin/oauth/clients/{client_id}` — Client deaktivieren
-- `GET /v1/admin/security/events` — Security-Aktivitäten prüfen
 
-Access Tokens sind standardmäßig 15 Minuten gültig. Refresh Tokens sind standardmäßig 30 Tage gültig und werden bei jeder Verwendung rotiert; das alte Refresh Token wird sofort ungültig. Diese Rotation entspricht einer empfohlenen Schutzmaßnahme gegen Replay von Refresh Tokens. citeturn0search2
-
-Die Tokenwerte werden nur bei Ausstellung ausgegeben; in SQLite werden Hashwerte gespeichert. Für OpenClaw kann weiterhin direkt ein AI3-Bearer-Key als Custom Provider verwendet werden, was OpenClaw offiziell für benutzerdefinierte OpenAI-kompatible Provider unterstützt. citeturn0search0
+Access Tokens sind standardmäßig 15 Minuten gültig; Refresh Tokens 30 Tage und werden bei Verwendung rotiert.
 
 ## Backups
-
-Admin-only:
 
 ```text
 POST /v1/admin/backup
 GET  /v1/admin/backups
 ```
 
-Die Sicherung verwendet SQLite Online Backup und landet standardmäßig unter `/data/backups`. Der Ordner gehört zum persistenten `ai3-data`-Volume.
+Backups landen standardmäßig unter `/data/backups` im persistenten AI3-Datenvolume.
 
-Für zusätzliche externe Sicherungen sollte `/data/backups` regelmäßig auf ein anderes Speichermedium kopiert werden.
+## Sicherheit für Internetbetrieb
 
-## Open WebUI
+1. Nur AI3 `:8080` über HTTPS veröffentlichen.
+2. `:8090` niemals öffentlich freigeben.
+3. Ollama niemals öffentlich freigeben.
+4. Pro Nutzer/Agent einen eigenen Token verwenden.
+5. Minimale Scopes vergeben.
+6. Rate-Limit und Tagesquota aktivieren.
+7. Secrets niemals committen.
+8. Backups nicht über die Weboberfläche öffentlich ausliefern.
+9. Für echte öffentliche Angebote die rechtlichen Hinweise an den konkreten Betreiber anpassen.
 
-Open WebUI kann OpenAI-kompatible Server als Provider verwenden. Dadurch kann AI3 als eigene Backend-URL vor Open WebUI stehen.
+## Lizenz- und Drittanbieterhinweise
 
-```text
-URL:      https://DEIN-AI3-HOST/v1
-API-Key:  YOUR_AI3_TOKEN
-Modell:   dein lokales Modell
-```
-
-## Agents
-
-Jeder Agent kann eine eigene Identität und ein eigenes Token erhalten. Zusätzlich kann AI3 pro Agent folgende Routingdaten speichern:
-
-- Modell
-- Backend: `ollama`, `vllm`, `llamacpp` oder `openai-compatible`
-- System-Prompt
-
-Die Konfiguration ist absichtlich von der Authentifizierung getrennt, damit ein Agent mehrere Clients bedienen kann, ohne dass dessen geheimes Token in der Modellkonfiguration gespeichert werden muss.
-
-## Usage
-
-AI3 protokolliert intern:
-
-- Endpoint
-- HTTP-Status
-- Latenz
-- zugeordneten Principal, sofern ein AI3-Bearer-Token verwendet wurde
-
-Die Weboberfläche zeigt daraus Requests, Fehlerquote, durchschnittliche Latenz und Endpoint-Nutzung.
-
-## Internetbetrieb
-
-Für einen öffentlichen AI3-Server:
-
-1. eigene Maschine oder eigenen Server verwenden
-2. AI3 intern auf `8080` betreiben
-3. HTTPS-Reverse-Proxy davor setzen
-4. Port `8090` und Ollama **nicht** öffentlich freigeben
-5. einen langen zufälligen `AI3_ADMIN_KEY` verwenden
-6. pro Agent eigene Tokens mit minimalen Scopes erzeugen
-7. Rate-Limiting und Firewall aktivieren
-8. keine Secrets in Git committen
-9. Backups nicht öffentlich ausliefern und regelmäßig extern sichern
-
-Ein eigener Domainname ist praktisch, aber nicht zwingend für das Protokoll. Die tatsächlichen Kosten hängen von Hardware, Strom, Internetanschluss und einer eventuell verwendeten Domain ab. Für die KI selbst ist im lokalen Betrieb kein bezahlter KI-API-Dienst erforderlich.
-
-## Backend-Strategie
-
-**Ollama** ist der Standard, weil es lokal einfach zu betreiben ist. Für leistungsfähigere GPUs kann später ein OpenAI-kompatibler **vLLM**-Server als Backend verwendet werden; vLLM stellt ebenfalls einen OpenAI-kompatiblen HTTP-Server bereit. citeturn0search9
-
-Die AI3-API bleibt dabei gleich:
-
-```text
-Client → AI3 → Backend → Modell
-```
-
-Ein Client muss also nicht wissen, ob dahinter Ollama, vLLM, llama.cpp oder ein anderer kompatibler Server läuft.
+Drittanbieter-Software, Modelle und Datensätze behalten ihre jeweiligen Lizenzen. Vor Weitergabe oder kommerzieller Nutzung sind diese separat zu prüfen.
 
 ## Tests
 
@@ -241,10 +150,4 @@ python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
-Die GitHub-Actions-Pipeline testet die Python-Anwendung automatisch. Zusätzlich sollte vor einer öffentlichen Freigabe ein echter Docker-Smoke-Test mit Ollama durchgeführt werden.
-
-## Sicherheit
-
-AI3 speichert Tokenwerte nicht im Klartext, sondern als Hash. Der vollständige Token wird nur bei der Erstellung ausgegeben. Der Admin-Key ist ausschließlich für Verwaltung gedacht und darf nicht als Client-API-Key verwendet werden.
-
-Für öffentlich erreichbare Installationen gilt: **HTTPS + Firewall + Rate-Limit + minimale Token-Scopes**. OpenAI-kompatible Agent-Gateways können weitreichende Fähigkeiten bereitstellen; deshalb sollte ein Internet-Gateway niemals ohne Authentifizierung veröffentlicht werden. Bearer Tokens sollten auf eine konkrete Zielressource begrenzt werden; für langlebige Refresh Tokens ist Rotation eine empfohlene Schutzmaßnahme. citeturn0search2
+Die GitHub-Actions-Pipeline testet die Python-Anwendung. Vor einer öffentlichen Freigabe sollte zusätzlich ein echter Docker-Smoke-Test mit Ollama durchgeführt werden.
