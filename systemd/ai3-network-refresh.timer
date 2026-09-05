@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic AI3 LAN network identity refresh
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=2min
+AccuracySec=10s
+Unit=ai3-network-refresh.service
+
+[Install]
+WantedBy=timers.target
