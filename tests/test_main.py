@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 os.environ["AI3_DB"] = "/tmp/ai3_test.db"
 os.environ["AI3_ADMIN_KEY"] = "test-admin-key"
+os.environ.pop("AI3_LLM_BASE_URL", None)
 
 try:
     os.remove(os.environ["AI3_DB"])
@@ -17,6 +18,7 @@ def test_health():
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+        assert response.json()["llm_configured"] is False
 
 
 def test_token_lifecycle():
@@ -49,12 +51,31 @@ def test_token_lifecycle():
         agents = client.get("/v1/agents", headers={"Authorization": f"Bearer {token}"})
         assert agents.status_code == 200
 
+        models = client.get("/v1/models", headers={"Authorization": f"Bearer {token}"})
+        assert models.status_code == 503
+        assert "AI3_LLM_BASE_URL" in models.json()["detail"]
+
+        chat = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"model": "local", "messages": [{"role": "user", "content": "Hallo"}]},
+        )
+        assert chat.status_code == 503
+
         prefix = issued.json()["token_prefix"]
         revoked = client.post(f"/v1/tokens/revoke?token_prefix={prefix}", headers=admin)
         assert revoked.status_code == 200
 
         rejected = client.get("/v1/me", headers={"Authorization": f"Bearer {token}"})
         assert rejected.status_code == 401
+
+
+def test_ai_endpoints_require_bearer_token():
+    with TestClient(app) as client:
+        assert client.get("/v1/models").status_code == 401
+        assert client.post("/v1/chat/completions", json={}).status_code == 401
+        assert client.post("/v1/responses", json={}).status_code == 401
+        assert client.post("/v1/embeddings", json={}).status_code == 401
 
 
 def test_admin_endpoint_rejects_bad_key():
