@@ -15,14 +15,27 @@ import secrets
 print(secrets.token_urlsafe(48))
 PY
 )"
+  ADMIN_PASSWORD="$(python3 - <<'PY'
+import secrets
+print('AI3-' + secrets.token_urlsafe(18))
+PY
+)"
   cat > .env <<EOF
 AI3_ADMIN_KEY=$ADMIN_KEY
+AI3_ADMIN_PASSWORD=$ADMIN_PASSWORD
+AI3_ADMIN_SESSION_HOURS=12
 AI3_MODEL=llama3.2:3b
+AI3_OLLAMA_URL=http://ollama:11434
 AI3_LLM_BASE_URL=http://ollama:11434/v1
 AI3_LLM_API_KEY=
 AI3_LLM_TIMEOUT=300
+AI3_VLLM_URL=
+AI3_LLAMACPP_URL=
+AI3_BACKEND=ollama
 EOF
-  echo ".env wurde mit einem zufälligen Admin-Key erstellt."
+  chmod 600 .env
+  echo ".env wurde mit zufälligem Admin-Key und Admin-Passwort erstellt."
+  echo "Admin-Passwort (einmalig anzeigen): $ADMIN_PASSWORD"
 fi
 
 echo "Starte Ollama, lade das lokale Modell und starte AI3 ..."
@@ -96,6 +109,7 @@ echo
 echo "Fertig. AI3: http://localhost:8080"
 echo "Modell: $MODEL"
 echo "AI3-Token wurde erzeugt und in openclaw/ai3-provider.generated.json5 geschrieben."
-echo "Wichtig: Dieses Token nicht in Git committen."
+echo "Wichtig: Dieses Token und .env nicht in Git committen."
+echo "Admin-Passwort kann später in AI3 System geändert werden."
 echo
 echo "Test: curl http://localhost:8080/v1/models -H 'Authorization: Bearer $TOKEN'"
