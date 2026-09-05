@@ -17,8 +17,11 @@ AI3_ADMIN_KEY=$ADMIN_KEY
 AI3_ADMIN_PASSWORD=$ADMIN_PASSWORD
 AI3_ADMIN_SESSION_HOURS=12
 AI3_DOMAIN=${AI3_DOMAIN:-localhost}
-AI3_PUBLIC_BASE_URL=${AI3_PUBLIC_BASE_URL:-}
+AI3_PUBLIC_BASE_URL=${AI3_PUBLIC_BASE_URL:-https://${AI3_DOMAIN:-localhost}}
 AI3_TLS_EMAIL=${AI3_TLS_EMAIL:-}
+AI3_MAIL_ENABLED=1
+AI3_MAIL_DOMAIN=${AI3_MAIL_DOMAIN:-${AI3_DOMAIN:-localhost}}
+AI3_MAIL_HOST=${AI3_MAIL_HOST:-mail.${AI3_DOMAIN:-localhost}}
 AI3_MODEL=llama3.2:3b
 AI3_OLLAMA_URL=http://ollama:11434
 AI3_LLM_BASE_URL=http://ollama:11434/v1
@@ -42,9 +45,12 @@ EOF
  chmod 600 .env; echo "Admin-Passwort: $ADMIN_PASSWORD"
 fi
 ADMIN_KEY="$(grep '^AI3_ADMIN_KEY=' .env|cut -d= -f2-)"; MODEL="$(grep '^AI3_MODEL=' .env|cut -d= -f2-)"; DOMAIN="$(grep '^AI3_DOMAIN=' .env|cut -d= -f2-)"
+docker network inspect ai3-public >/dev/null 2>&1 || docker network create ai3-public >/dev/null
 COMPOSE_FILES=(-f docker-compose.yml)
 if [ "${AI3_USE_GPU:-}" = "1" ]; then COMPOSE_FILES+=(-f docker-compose.gpu.yml); elif [ "${AI3_USE_GPU:-}" != "0" ] && command -v nvidia-smi >/dev/null 2>&1 && docker run --rm --gpus all nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi >/dev/null 2>&1; then COMPOSE_FILES+=(-f docker-compose.gpu.yml); fi
 docker compose "${COMPOSE_FILES[@]}" up -d --build
+chmod +x scripts/setup-mail.sh scripts/mail-check.sh 2>/dev/null || true
+if [ "${AI3_MAIL_ENABLED:-1}" = "1" ]; then ./scripts/setup-mail.sh; fi
 for _ in $(seq 1 90); do curl -kfsS https://localhost/health >/dev/null 2>&1 && break; sleep 2; done
 curl -kfsS https://localhost/health >/dev/null
 mkdir -p openclaw
@@ -56,4 +62,4 @@ cat > openclaw/ai3-provider.generated.json5 <<EOF
 EOF
 chmod 600 openclaw/ai3-provider.generated.json5
 curl -kfsS https://localhost/v1/pki/ca >/dev/null
-printf '\nAI3 One-Click fertig: https://%s\nLokales Modell: %s\nHTTPS: automatisch\nEigene PKI: aktiv\nOwn Verification: aktiv\nOpenClaw-Konfiguration: openclaw/ai3-provider.generated.json5\n' "$DOMAIN" "$MODEL"
+printf '\nAI3 One-Click fertig: https://%s\nLokales Modell: %s\nHTTPS: automatisch\nEigene PKI: aktiv\nOwn Verification: aktiv\nEigener Mailserver: https://mail.%s\nMailports: 25,465,587,110,143,993,995,4190\nOpenClaw-Konfiguration: openclaw/ai3-provider.generated.json5\n' "$DOMAIN" "$MODEL" "$DOMAIN"
