@@ -65,7 +65,7 @@ docker network inspect ai3-public >/dev/null 2>&1 || docker network create ai3-p
 COMPOSE_FILES=(-f docker-compose.yml)
 if [ "${AI3_USE_GPU:-}" = "1" ]; then COMPOSE_FILES+=(-f docker-compose.gpu.yml); elif [ "${AI3_USE_GPU:-}" != "0" ] && command -v nvidia-smi >/dev/null 2>&1 && docker run --rm --gpus all nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi >/dev/null 2>&1; then COMPOSE_FILES+=(-f docker-compose.gpu.yml); fi
 docker compose "${COMPOSE_FILES[@]}" up -d --build
-chmod +x scripts/setup-mail.sh scripts/mail-check.sh 2>/dev/null || true
+chmod +x scripts/setup-mail.sh scripts/mail-check.sh scripts/open-web-ui.sh 2>/dev/null || true
 if [ "${AI3_MAIL_ENABLED:-1}" = "1" ]; then ./scripts/setup-mail.sh; fi
 for _ in $(seq 1 90); do curl -kfsS https://localhost/health >/dev/null 2>&1 && break; sleep 2; done
 curl -kfsS https://localhost/health >/dev/null
@@ -78,4 +78,5 @@ cat > openclaw/ai3-provider.generated.json5 <<EOF
 EOF
 chmod 600 openclaw/ai3-provider.generated.json5
 curl -kfsS https://localhost/v1/pki/ca >/dev/null
-printf '\nAI3 One-Click fertig:\n  Öffentlich: https://%s\n  LAN-IP:      https://%s\n  LAN-Name:    https://%s\n  Router:      TCP 80 + 443 -> %s\nLokales Modell: %s\nHTTPS: automatisch\nEigene PKI: aktiv\nOwn Verification: aktiv\nEigener Mailserver: https://mail.%s\nMailports: 25,465,587,110,143,993,995,4190\nOpenClaw-Konfiguration: openclaw/ai3-provider.generated.json5\n' "$DOMAIN" "$LAN_IP" "$LAN_HOSTNAME" "$LAN_IP" "$MODEL" "$DOMAIN"
+./scripts/open-web-ui.sh || true
+printf '\nAI3 One-Click fertig:\n  Öffentlich: https://%s\n  LAN-IP:      https://%s\n  LAN-Name:    https://%s\n  Router:      TCP 80 + 443 -> %s\nLokales Modell: %s\nHTTPS: automatisch\nEigene PKI: aktiv\nOwn Verification: aktiv\nEigener Mailserver: https://mail.%s\nMailports: 25,465,587,110,143,993,995,4190\nOpenClaw-Konfiguration: openclaw/ai3-provider.generated.json5\nWeb UI: Browser wird bei einer grafischen Ubuntu-Sitzung automatisch geöffnet.\n' "$DOMAIN" "$LAN_IP" "$LAN_HOSTNAME" "$LAN_IP" "$MODEL" "$DOMAIN"
