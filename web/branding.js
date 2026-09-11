@@ -11,5 +11,5 @@ async function load(){try{const r=await fetch(`/__ai3/network-info.json?ts=${Dat
 $('#openRouter').onclick=async()=>{try{const r=await fetch(`/__ai3/network-info.json?ts=${Date.now()}`,{cache:'no-store'});const d=await r.json();if(/^\d{1,3}(\.\d{1,3}){3}$/.test(d.gateway||''))window.open(`http://${d.gateway}/`,'_blank','noopener');else alert('Router-Adresse ist noch nicht verfügbar.')}catch(e){alert('Router-Adresse konnte nicht ermittelt werden.')}};
 $('#networkGuide').onclick=()=>alert('Router-Anleitung\n\n1. Router öffnen.\n2. Diesen PC anhand des angezeigten PC-Namens bzw. der LAN-IP auswählen.\n3. TCP 80 und TCP 443 auf diesen PC weiterleiten.\n4. AI3 überwacht danach die LAN-IP automatisch.\n\nEine DHCP-Reservierung für diesen PC wird zusätzlich empfohlen.');
 $('#refreshNetwork').onclick=load;load();setInterval(load,30000)}
-function boot(){addLegal();addLimits();addNetworkStatus()}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+function boot(){addLegal();addLimits();addNetworkStatus();const s=document.createElement('script');s.src='/web/ai-lab.js';document.body.appendChild(s)}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
