@@ -8,6 +8,12 @@
         file_server
     }
 
+    @ai3Update path /__ai3/update/*
+    handle @ai3Update {
+        uri strip_prefix /__ai3/update
+        reverse_proxy ai3-update-agent:8091
+    }
+
     reverse_proxy ai3-token-server:8080
 }
 
