@@ -1,0 +1,18 @@
+services:
+  caddy:
+    depends_on:
+      ai3-update-agent:
+        condition: service_started
+
+  ai3-update-agent:
+    build: .
+    restart: unless-stopped
+    command: ["python3", "/app/update_agent.py"]
+    environment:
+      AI3_DB: /data/ai3.db
+      AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
+    volumes:
+      - ai3-data:/data:ro
+      - ./runtime:/runtime
+    expose:
+      - "8091"
