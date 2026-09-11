@@ -5,6 +5,7 @@ import subprocess
 from datetime import datetime, timezone
 
 from fastapi import Depends
+from app.main import require_admin
 
 
 def _num(v):
@@ -18,21 +19,12 @@ def _gpu():
     if not shutil.which("nvidia-smi"):
         return []
     try:
-        p = subprocess.run([
-            "nvidia-smi", "--query-gpu=name,utilization.gpu,memory.total,memory.used,temperature.gpu",
-            "--format=csv,noheader,nounits"
-        ], capture_output=True, text=True, timeout=3, check=True)
+        p = subprocess.run(["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.total,memory.used,temperature.gpu", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=3, check=True)
         out = []
         for line in p.stdout.strip().splitlines():
             parts = [x.strip() for x in line.split(",")]
             if len(parts) >= 5:
-                out.append({
-                    "name": parts[0],
-                    "utilization_percent": _num(parts[1]),
-                    "vram_total_mb": _num(parts[2]),
-                    "vram_used_mb": _num(parts[3]),
-                    "temperature_c": _num(parts[4]),
-                })
+                out.append({"name": parts[0], "utilization_percent": _num(parts[1]), "vram_total_mb": _num(parts[2]), "vram_used_mb": _num(parts[3]), "temperature_c": _num(parts[4])})
         return out
     except Exception:
         return []
@@ -48,39 +40,18 @@ def _cpu_ram():
             for line in f:
                 k, v = line.split(":", 1)
                 info[k] = int(v.strip().split()[0]) * 1024
-        mem_total = info.get("MemTotal")
-        mem_available = info.get("MemAvailable")
+        mem_total, mem_available = info.get("MemTotal"), info.get("MemAvailable")
     except Exception:
         pass
-    ram_used = (mem_total - mem_available) if mem_total is not None and mem_available is not None else None
-    return {
-        "logical_cores": cpu_count,
-        "load_1m": _num(load[0]),
-        "load_percent_estimate": _num(min(100.0, load[0] / max(cpu_count, 1) * 100.0)),
-        "ram_total_bytes": mem_total,
-        "ram_used_bytes": ram_used,
-        "ram_available_bytes": mem_available,
-    }
+    return {"logical_cores": cpu_count, "load_1m": _num(load[0]), "load_percent_estimate": _num(min(100.0, load[0] / max(cpu_count, 1) * 100.0)), "ram_total_bytes": mem_total, "ram_used_bytes": (mem_total - mem_available) if mem_total is not None and mem_available is not None else None, "ram_available_bytes": mem_available}
 
 
 def snapshot():
-    cpu = _cpu_ram()
-    gpus = _gpu()
-    return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "platform": platform.platform(),
-        "cpu": cpu,
-        "gpus": gpus,
-        "gpu_available": bool(gpus),
-        "training": {
-            "recommended": "gpu" if gpus else "cpu",
-            "qlora_available": bool(gpus),
-            "lora_available": True,
-        },
-    }
+    cpu = _cpu_ram(); gpus = _gpu()
+    return {"timestamp": datetime.now(timezone.utc).isoformat(), "platform": platform.platform(), "cpu": cpu, "gpus": gpus, "gpu_available": bool(gpus), "training": {"recommended": "gpu" if gpus else "cpu", "qlora_available": bool(gpus), "lora_available": True}}
 
 
 def install(app):
-    @app.get("/v1/admin/hardware", dependencies=[Depends(app.state.require_admin)] if hasattr(app.state, "require_admin") else [])
+    @app.get("/v1/admin/hardware", dependencies=[Depends(require_admin)])
     def hardware():
         return snapshot()
