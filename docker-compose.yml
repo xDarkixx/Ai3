@@ -2,79 +2,141 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    depends_on: {ai3-token-server: {condition: service_started}}
-    ports: ["80:80", "443:443"]
-    extra_hosts: ["host.docker.internal:host-gateway"]
-    environment: {AI3_DOMAIN: ${AI3_DOMAIN:-localhost}, AI3_LAN_HOSTNAME: ${AI3_LAN_HOSTNAME:-localhost}, AI3_LAN_IP: ${AI3_LAN_IP:-127.0.0.1}, AI3_TLS_EMAIL: ${AI3_TLS_EMAIL:-}}
-    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "./runtime:/runtime:ro", "caddy-data:/data", "caddy-config:/config"]
-    networks: [ai3-public, default]
+    depends_on:
+      ai3-token-server:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      AI3_DOMAIN: "${AI3_DOMAIN:-localhost}"
+      AI3_LAN_HOSTNAME: "${AI3_LAN_HOSTNAME:-localhost}"
+      AI3_LAN_IP: "${AI3_LAN_IP:-127.0.0.1}"
+      AI3_TLS_EMAIL: "${AI3_TLS_EMAIL:-}"
+    volumes:
+      - "./Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "./runtime:/runtime:ro"
+      - "caddy-data:/data"
+      - "caddy-config:/config"
+    networks:
+      - ai3-public
+      - default
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
-    volumes: ["ollama-data:/root/.ollama"]
+    volumes:
+      - "ollama-data:/root/.ollama"
   ollama-init:
     image: ollama/ollama:latest
-    depends_on: {ollama: {condition: service_started}}
-    environment: {OLLAMA_HOST: http://ollama:11434, AI3_MODEL: ${AI3_MODEL:-llama3.2:3b}}
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+      AI3_MODEL: "${AI3_MODEL:-llama3.2:3b}"
     entrypoint: ["/bin/sh", "-c"]
-    command: ["until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull \"$${AI3_MODEL}\""]
+    command:
+      - "until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull \"$${AI3_MODEL}\""
     restart: "no"
   ai3-token-server:
     build: .
     restart: unless-stopped
-    depends_on: {ollama-init: {condition: service_completed_successfully}}
-    expose: ["8080"]
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    expose:
+      - "8080"
     environment:
-      AI3_DB: /data/ai3.db
-      AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}
-      AI3_ADMIN_PASSWORD: ${AI3_ADMIN_PASSWORD:-}
-      AI3_ADMIN_SESSION_HOURS: ${AI3_ADMIN_SESSION_HOURS:-12}
-      AI3_PUBLIC_BASE_URL: ${AI3_PUBLIC_BASE_URL:-}
-      AI3_LLM_BASE_URL: ${AI3_LLM_BASE_URL:-http://ollama:11434/v1}
-      AI3_LLM_API_KEY: ${AI3_LLM_API_KEY:-}
-      AI3_LLM_TIMEOUT: ${AI3_LLM_TIMEOUT:-300}
-      AI3_OLLAMA_URL: http://ollama:11434
-      AI3_ENABLE_ADVANCED_SECURITY: ${AI3_ENABLE_ADVANCED_SECURITY:-1}
-      AI3_ACCESS_TOKEN_MINUTES: ${AI3_ACCESS_TOKEN_MINUTES:-15}
-      AI3_REFRESH_TOKEN_DAYS: ${AI3_REFRESH_TOKEN_DAYS:-30}
-      AI3_RATE_LIMIT_RPM: ${AI3_RATE_LIMIT_RPM:-120}
-      AI3_DAILY_REQUEST_LIMIT: ${AI3_DAILY_REQUEST_LIMIT:-0}
-      AI3_DATA_ENCRYPTION_KEY_FILE: /run/secrets/ai3_data_key
-      AI3_BACKUP_DIR: /data/backups
-      AI3_PKI_DIR: /data/pki
-    secrets: [ai3_data_key]
-    volumes: ["ai3-data:/data"]
+      AI3_DB: "/data/ai3.db"
+      AI3_ADMIN_KEY: "${AI3_ADMIN_KEY}"
+      AI3_ADMIN_PASSWORD: "${AI3_ADMIN_PASSWORD:-}"
+      AI3_ADMIN_SESSION_HOURS: "${AI3_ADMIN_SESSION_HOURS:-12}"
+      AI3_PUBLIC_BASE_URL: "${AI3_PUBLIC_BASE_URL:-}"
+      AI3_LLM_BASE_URL: "${AI3_LLM_BASE_URL:-http://ollama:11434/v1}"
+      AI3_LLM_API_KEY: "${AI3_LLM_API_KEY:-}"
+      AI3_LLM_TIMEOUT: "${AI3_LLM_TIMEOUT:-300}"
+      AI3_OLLAMA_URL: "http://ollama:11434"
+      AI3_ENABLE_ADVANCED_SECURITY: "${AI3_ENABLE_ADVANCED_SECURITY:-1}"
+      AI3_ACCESS_TOKEN_MINUTES: "${AI3_ACCESS_TOKEN_MINUTES:-15}"
+      AI3_REFRESH_TOKEN_DAYS: "${AI3_REFRESH_TOKEN_DAYS:-30}"
+      AI3_RATE_LIMIT_RPM: "${AI3_RATE_LIMIT_RPM:-120}"
+      AI3_DAILY_REQUEST_LIMIT: "${AI3_DAILY_REQUEST_LIMIT:-0}"
+      AI3_DATA_ENCRYPTION_KEY_FILE: "/run/secrets/ai3_data_key"
+      AI3_BACKUP_DIR: "/data/backups"
+      AI3_PKI_DIR: "/data/pki"
+    secrets:
+      - ai3_data_key
+    volumes:
+      - "ai3-data:/data"
   ai3-agent-worker:
     build: .
     restart: unless-stopped
-    depends_on: {ollama: {condition: service_started}, ai3-token-server: {condition: service_started}}
+    depends_on:
+      ollama:
+        condition: service_started
+      ai3-token-server:
+        condition: service_started
     command: ["python", "agent_worker.py"]
-    environment: {AI3_DB: /data/ai3.db, AI3_OLLAMA_URL: http://ollama:11434, AI3_AGENT_POLL_SECONDS: ${AI3_AGENT_POLL_SECONDS:-2}, AI3_AGENT_TIMEOUT: ${AI3_AGENT_TIMEOUT:-600}}
-    volumes: ["ai3-data:/data"]
+    environment:
+      AI3_DB: "/data/ai3.db"
+      AI3_OLLAMA_URL: "http://ollama:11434"
+      AI3_AGENT_POLL_SECONDS: "${AI3_AGENT_POLL_SECONDS:-2}"
+      AI3_AGENT_TIMEOUT: "${AI3_AGENT_TIMEOUT:-600}"
+    volumes:
+      - "ai3-data:/data"
   ai3-training-worker:
-    build: {context: ., dockerfile: training/Dockerfile}
+    build:
+      context: .
+      dockerfile: training/Dockerfile
     restart: unless-stopped
-    profiles: [gpu]
-    environment: {AI3_DB: /data/ai3.db, AI3_TRAIN_POLL_SECONDS: ${AI3_TRAIN_POLL_SECONDS:-5}, HF_HOME: /data/huggingface}
-    volumes: ["ai3-data:/data", "ai3-models:/data/models"]
+    profiles:
+      - gpu
+    environment:
+      AI3_DB: "/data/ai3.db"
+      AI3_TRAIN_POLL_SECONDS: "${AI3_TRAIN_POLL_SECONDS:-5}"
+      HF_HOME: "/data/huggingface"
+    volumes:
+      - "ai3-data:/data"
+      - "ai3-models:/data/models"
     gpus: all
   ai3-training-worker-cpu:
-    build: {context: ., dockerfile: training/Dockerfile.cpu}
+    build:
+      context: .
+      dockerfile: training/Dockerfile.cpu
     restart: unless-stopped
-    profiles: [cpu]
-    environment: {AI3_DB: /data/ai3.db, AI3_TRAIN_POLL_SECONDS: ${AI3_TRAIN_POLL_SECONDS:-5}, HF_HOME: /data/huggingface, AI3_TRAIN_DEVICE: cpu}
-    volumes: ["ai3-data:/data", "ai3-models:/data/models"]
+    profiles:
+      - cpu
+    environment:
+      AI3_DB: "/data/ai3.db"
+      AI3_TRAIN_POLL_SECONDS: "${AI3_TRAIN_POLL_SECONDS:-5}"
+      HF_HOME: "/data/huggingface"
+      AI3_TRAIN_DEVICE: "cpu"
+    volumes:
+      - "ai3-data:/data"
+      - "ai3-models:/data/models"
   ai3-api-server:
     build: .
     restart: unless-stopped
-    depends_on: {ollama: {condition: service_started}}
-    ports: ["127.0.0.1:8090:8090"]
+    depends_on:
+      ollama:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8090:8090"
     command: ["uvicorn", "api_server:api", "--host", "0.0.0.0", "--port", "8090"]
-    environment: {AI3_DB: /data/ai3.db, AI3_ADMIN_KEY: ${AI3_ADMIN_KEY}, AI3_OLLAMA_URL: http://ollama:11434, AI3_DATA_ENCRYPTION_KEY_FILE: /run/secrets/ai3_data_key}
-    secrets: [ai3_data_key]
-    volumes: ["ai3-data:/data"]
+    environment:
+      AI3_DB: "/data/ai3.db"
+      AI3_ADMIN_KEY: "${AI3_ADMIN_KEY}"
+      AI3_OLLAMA_URL: "http://ollama:11434"
+      AI3_DATA_ENCRYPTION_KEY_FILE: "/run/secrets/ai3_data_key"
+    secrets:
+      - ai3_data_key
+    volumes:
+      - "ai3-data:/data"
 secrets:
-  ai3_data_key: {file: ./secrets/ai3_data_encryption_key}
+  ai3_data_key:
+    file: "./secrets/ai3_data_encryption_key"
 volumes:
   ai3-data:
   ollama-data:
@@ -82,4 +144,5 @@ volumes:
   caddy-config:
   ai3-models:
 networks:
-  ai3-public: {name: ai3-public}
+  ai3-public:
+    name: ai3-public
