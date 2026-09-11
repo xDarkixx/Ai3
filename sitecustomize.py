@@ -43,5 +43,9 @@ try:
     install_own_verification(app)
     from app.pki import install as install_pki
     install_pki(app)
+
+    # Private AI3 AI Lab: persistent owner knowledge, projects and coding assistant.
+    from app.ai_lab import install as install_ai_lab
+    install_ai_lab(app)
 except Exception:
     pass
