@@ -5,47 +5,34 @@ import secrets
 try:
     from app.main import app
     from app import main
-
     def _safe_hash_password(password: str) -> str:
-        salt = secrets.token_bytes(16)
-        n, r, p = 32768, 8, 1
+        salt = secrets.token_bytes(16); n, r, p = 32768, 8, 1
         digest = hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=32)
         return f"scrypt${n}${r}${p}${salt.hex()}${digest.hex()}"
-
     def _safe_verify_password(password: str, encoded: str) -> bool:
         try:
-            algo, n, r, p, salt_hex, digest_hex = encoded.split("$", 5)
-            if algo != "scrypt": return False
-            digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=int(n), r=int(r), p=int(p), dklen=32)
-            return secrets.compare_digest(digest.hex(), digest_hex)
-        except (ValueError, TypeError): return False
-
-    main.hash_password = _safe_hash_password
-    main.verify_password = _safe_verify_password
-
-    if os.getenv("AI3_ENABLE_ADVANCED_SECURITY", "0") == "1":
+            algo,n,r,p,salt_hex,digest_hex=encoded.split('$',5)
+            if algo!='scrypt': return False
+            digest=hashlib.scrypt(password.encode(),salt=bytes.fromhex(salt_hex),n=int(n),r=int(r),p=int(p),dklen=32)
+            return secrets.compare_digest(digest.hex(),digest_hex)
+        except (ValueError,TypeError): return False
+    main.hash_password=_safe_hash_password; main.verify_password=_safe_verify_password
+    if os.getenv('AI3_ENABLE_ADVANCED_SECURITY','0')=='1':
         from app.advanced_security import install as install_security
         from app.rate_limit import install as install_rate_limit
         from app.runtime_controls import install as install_runtime_controls
         from app import user_accounts
-        user_accounts.hash_password = _safe_hash_password
-        user_accounts.verify_password = _safe_verify_password
+        user_accounts.hash_password=_safe_hash_password; user_accounts.verify_password=_safe_verify_password
         install_security(app); install_runtime_controls(app); user_accounts.install(app); install_rate_limit(app)
-
     from app.chat_security import install as install_chat_security
     from app.ddos_protection import install as install_ddos_protection
     install_chat_security(app); install_ddos_protection(app)
-    from app.user_profile import install as install_user_profile
-    install_user_profile(app)
-    from app.account_security import install as install_account_security
-    install_account_security(app)
-    from app.own_verification import install as install_own_verification
-    install_own_verification(app)
-    from app.pki import install as install_pki
-    install_pki(app)
-
-    # Private AI3 AI Lab: persistent owner knowledge, projects and coding assistant.
-    from app.ai_lab import install as install_ai_lab
-    install_ai_lab(app)
+    from app.user_profile import install as install_user_profile; install_user_profile(app)
+    from app.account_security import install as install_account_security; install_account_security(app)
+    from app.own_verification import install as install_own_verification; install_own_verification(app)
+    from app.pki import install as install_pki; install_pki(app)
+    from app.ai_lab import install as install_ai_lab; install_ai_lab(app)
+    from app.agent_runtime import install as install_agent_runtime; install_agent_runtime(app)
+    from app.training_lab import install as install_training_lab; install_training_lab(app)
 except Exception:
     pass
