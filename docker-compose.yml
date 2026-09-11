@@ -2,16 +2,10 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    depends_on:
-      ai3-token-server:
-        condition: service_started
+    depends_on: {ai3-token-server: {condition: service_started}}
     ports: ["80:80", "443:443"]
     extra_hosts: ["host.docker.internal:host-gateway"]
-    environment:
-      AI3_DOMAIN: ${AI3_DOMAIN:-localhost}
-      AI3_LAN_HOSTNAME: ${AI3_LAN_HOSTNAME:-localhost}
-      AI3_LAN_IP: ${AI3_LAN_IP:-127.0.0.1}
-      AI3_TLS_EMAIL: ${AI3_TLS_EMAIL:-}
+    environment: {AI3_DOMAIN: ${AI3_DOMAIN:-localhost}, AI3_LAN_HOSTNAME: ${AI3_LAN_HOSTNAME:-localhost}, AI3_LAN_IP: ${AI3_LAN_IP:-127.0.0.1}, AI3_TLS_EMAIL: ${AI3_TLS_EMAIL:-}}
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "./runtime:/runtime:ro", "caddy-data:/data", "caddy-config:/config"]
     networks: [ai3-public, default]
   ollama:
@@ -64,6 +58,12 @@ services:
     environment: {AI3_DB: /data/ai3.db, AI3_TRAIN_POLL_SECONDS: ${AI3_TRAIN_POLL_SECONDS:-5}, HF_HOME: /data/huggingface}
     volumes: ["ai3-data:/data", "ai3-models:/data/models"]
     gpus: all
+  ai3-training-worker-cpu:
+    build: {context: ., dockerfile: training/Dockerfile.cpu}
+    restart: unless-stopped
+    profiles: [cpu]
+    environment: {AI3_DB: /data/ai3.db, AI3_TRAIN_POLL_SECONDS: ${AI3_TRAIN_POLL_SECONDS:-5}, HF_HOME: /data/huggingface, AI3_TRAIN_DEVICE: cpu}
+    volumes: ["ai3-data:/data", "ai3-models:/data/models"]
   ai3-api-server:
     build: .
     restart: unless-stopped
