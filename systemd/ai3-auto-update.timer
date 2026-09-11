@@ -1,0 +1,12 @@
+[Unit]
+Description=AI3 GitHub Auto Update Check
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+Persistent=true
+AccuracySec=30s
+Unit=ai3-auto-update.service
+
+[Install]
+WantedBy=timers.target
