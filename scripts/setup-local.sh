@@ -19,6 +19,7 @@ if [ ! -f .env ]; then
  cat > .env <<EOF
 AI3_ADMIN_KEY=$ADMIN_KEY
 AI3_ADMIN_PASSWORD=$ADMIN_PASSWORD
+AI3_ADMIN_EMAIL=${AI3_ADMIN_EMAIL:-admin@localhost}
 AI3_ADMIN_SESSION_HOURS=12
 AI3_DOMAIN=${AI3_DOMAIN:-localhost}
 AI3_LAN_HOSTNAME=${AI3_LAN_HOSTNAME:-$LAN_HOSTNAME}
@@ -48,14 +49,14 @@ AI3_VERIFICATION_MAX_BYTES=8388608
 AI3_VERIFICATION_RETENTION_DAYS=30
 AI3_BACKUP_DIR=/data/backups
 EOF
- chmod 600 .env; echo "Admin-Passwort: $ADMIN_PASSWORD"
+ chmod 600 .env; echo "Admin-Passwort: $ADMIN_PASSWORD"; echo "Admin-Mail: $AI3_ADMIN_EMAIL"
 else
   grep -q '^AI3_LAN_HOSTNAME=' .env || printf '\nAI3_LAN_HOSTNAME=%s\n' "$LAN_HOSTNAME" >> .env
   grep -q '^AI3_LAN_IP=' .env || printf 'AI3_LAN_IP=%s\n' "$LAN_IP" >> .env
+  grep -q '^AI3_ADMIN_EMAIL=' .env || printf 'AI3_ADMIN_EMAIL=%s\n' "${AI3_ADMIN_EMAIL:-admin@localhost}" >> .env
   chmod 600 .env
 fi
 ./scripts/network-refresh.sh >/dev/null
-# AI3 updates itself from the configured GitHub branch. Local changes still block updates safely.
 cat > runtime/update-config.json <<'JSON'
 {
   "auto_update": true,
@@ -92,7 +93,7 @@ EOF
   systemctl daemon-reload
   systemctl enable --now ai3-auto-update.timer
 fi
-ADMIN_KEY="$(grep '^AI3_ADMIN_KEY=' .env|cut -d= -f2-)"; MODEL="$(grep '^AI3_MODEL=' .env|cut -d= -f2-)"; DOMAIN="$(grep '^AI3_DOMAIN=' .env|cut -d= -f2-)"; LAN_HOSTNAME="$(grep '^AI3_LAN_HOSTNAME=' .env|cut -d= -f2-)"; LAN_IP="$(grep '^AI3_LAN_IP=' .env|cut -d= -f2-)"
+ADMIN_KEY="$(grep '^AI3_ADMIN_KEY=' .env|cut -d= -f2-)"; MODEL="$(grep '^AI3_MODEL=' .env|cut -d= -f2-)"; DOMAIN="$(grep '^AI3_DOMAIN=' .env|cut -d= -f2-)"; LAN_HOSTNAME="$(grep '^AI3_LAN_HOSTNAME=' .env|cut -d= -f2-)"; LAN_IP="$(grep '^AI3_LAN_IP=' .env|cut -d= -f2-)"; ADMIN_EMAIL="$(grep '^AI3_ADMIN_EMAIL=' .env|cut -d= -f2-)"
 docker network inspect ai3-public >/dev/null 2>&1 || docker network create ai3-public >/dev/null
 COMPOSE_FILES=(-f docker-compose.yml)
 if [ "${AI3_USE_GPU:-}" = "1" ]; then COMPOSE_FILES+=(-f docker-compose.gpu.yml); elif [ "${AI3_USE_GPU:-}" != "0" ] && command -v nvidia-smi >/dev/null 2>&1 && docker run --rm --gpus all nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi >/dev/null 2>&1; then COMPOSE_FILES+=(-f docker-compose.gpu.yml); fi
@@ -102,13 +103,23 @@ if [ "${AI3_MAIL_ENABLED:-1}" = "1" ]; then ./scripts/setup-mail.sh; fi
 for _ in $(seq 1 90); do curl -kfsS https://localhost/health >/dev/null 2>&1 && break; sleep 2; done
 curl -kfsS https://localhost/health >/dev/null
 mkdir -p openclaw
-curl -kfsS -X POST https://localhost/v1/principals -H "X-AI3-Admin-Key: $ADMIN_KEY" -H 'Content-Type: application/json' -d '{"name":"assistant-01","kind":"agent"}' >/dev/null || true
-TOKEN_JSON="$(curl -kfsS -X POST https://localhost/v1/tokens -H "X-AI3-Admin-Key: $ADMIN_KEY" -H 'Content-Type: application/json' -d '{"principal":"assistant-01","name":"local","scopes":["ai:inference","agents:read"]}')"
-TOKEN="$(printf '%s' "$TOKEN_JSON"|python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')"
+PRINCIPAL_HTTP="$(curl -ksS -o /tmp/ai3-principal.json -w '%{http_code}' -X POST https://localhost/v1/principals -H "X-AI3-Admin-Key: $ADMIN_KEY" -H 'Content-Type: application/json' -d '{"name":"assistant-01","kind":"agent"}')"
+if [ "$PRINCIPAL_HTTP" != "2"* ] && [ "$PRINCIPAL_HTTP" != "409" ]; then
+  echo "AI3: assistant-01 konnte nicht eingerichtet werden (HTTP $PRINCIPAL_HTTP). Die lokale Admin-Oberfläche bleibt verfügbar."
+fi
+TOKEN_HTTP="$(curl -ksS -o /tmp/ai3-token.json -w '%{http_code}' -X POST https://localhost/v1/tokens -H "X-AI3-Admin-Key: $ADMIN_KEY" -H 'Content-Type: application/json' -d '{"principal":"assistant-01","name":"local","scopes":["ai:inference","agents:read"]}')"
+TOKEN=""
+if [ "$TOKEN_HTTP" = "200" ]; then
+  TOKEN="$(python3 -c 'import json;print(json.load(open("/tmp/ai3-token.json"))["token"])')"
+else
+  echo "AI3: API-Token-Bootstrap übersprungen (HTTP $TOKEN_HTTP). Kein Installationsabbruch."
+fi
+if [ -n "$TOKEN" ]; then
 cat > openclaw/ai3-provider.generated.json5 <<EOF
 {models:{mode:"merge",providers:{ai3:{baseUrl:"https://$DOMAIN/v1",apiKey:"$TOKEN",api:"openai-completions",timeoutSeconds:300,models:[{id:"$MODEL",name:"AI3 Local $MODEL",reasoning:false,input:["text"],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:32768,maxTokens:8192}]}}},agents:{defaults:{model:{primary:"ai3/$MODEL"}}}}
 EOF
 chmod 600 openclaw/ai3-provider.generated.json5
+fi
 curl -kfsS https://localhost/v1/pki/ca >/dev/null
 ./scripts/open-web-ui.sh || true
-printf '\nAI3 One-Click fertig:\n  Öffentlich: https://%s\n  LAN-IP:      https://%s\n  LAN-Name:    https://%s\n  Router:      TCP 80 + 443 -> %s\nLokales Modell: %s\nHTTPS: automatisch\nEigene PKI: aktiv\nOwn Verification: aktiv\nAuto-Update: alle 15 Minuten von GitHub\nWeb UI: Browser wird bei einer grafischen Ubuntu-Sitzung automatisch geöffnet.\n' "$DOMAIN" "$LAN_IP" "$LAN_HOSTNAME" "$LAN_IP" "$MODEL"
+printf '\nAI3 One-Click fertig:\n  Öffentlich: https://%s\n  LAN-IP:      https://%s\n  LAN-Name:    https://%s\n  Router:      TCP 80 + 443 -> %s\n  Admin-Mail:  %s\n  Admin-Setup: beim ersten Start lokal konfigurierbar\nLokales Modell: %s\nHTTPS: automatisch\nEigene PKI: aktiv\nOwn Verification: aktiv\nAuto-Update: alle 15 Minuten von GitHub\nWeb UI: Browser wird bei einer grafischen Ubuntu-Sitzung automatisch geöffnet.\n' "$DOMAIN" "$LAN_IP" "$LAN_HOSTNAME" "$LAN_IP" "$ADMIN_EMAIL" "$MODEL"
