@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT_DIR"
+
+# The installer is also the maintenance entrypoint. `--update` updates only
+# the AI3 repository/containers; it never updates Ubuntu, Docker, packages,
+# or unrelated host software.
+if [ "${1:-}" = "--update" ] || [ "${1:-}" = "update" ]; then
+  if [ ! -x "$ROOT_DIR/scripts/update-ai3.sh" ]; then
+    chmod +x "$ROOT_DIR/scripts/update-ai3.sh" 2>/dev/null || true
+  fi
+  exec "$ROOT_DIR/scripts/update-ai3.sh"
+fi
+
 need_cmd(){ command -v "$1" >/dev/null 2>&1 || { echo "Fehlt: $1"; exit 1; }; }
 need_cmd docker; need_cmd curl; need_cmd python3; docker compose version >/dev/null
 mkdir -p secrets runtime
@@ -10,7 +21,7 @@ print(secrets.token_hex(32))
 PY
 fi
 chmod 600 secrets/ai3_data_encryption_key
-chmod +x scripts/network-refresh.sh 2>/dev/null || true
+chmod +x scripts/network-refresh.sh scripts/update-ai3.sh 2>/dev/null || true
 ./scripts/network-refresh.sh >/dev/null
 LAN_HOSTNAME="$(grep '^AI3_LAN_HOSTNAME=' .env 2>/dev/null | cut -d= -f2- || hostname -s 2>/dev/null || hostname)"
 LAN_IP="$(grep '^AI3_LAN_IP=' .env 2>/dev/null | cut -d= -f2- || true)"; LAN_IP="${LAN_IP:-127.0.0.1}"
@@ -54,6 +65,8 @@ else
   grep -q '^AI3_LAN_HOSTNAME=' .env || printf '\nAI3_LAN_HOSTNAME=%s\n' "$LAN_HOSTNAME" >> .env
   grep -q '^AI3_LAN_IP=' .env || printf 'AI3_LAN_IP=%s\n' "$LAN_IP" >> .env
   grep -q '^AI3_ADMIN_EMAIL=' .env || printf 'AI3_ADMIN_EMAIL=%s\n' "${AI3_ADMIN_EMAIL:-admin@localhost}" >> .env
+  if ! grep -q '^AI3_ADMIN_KEY=' .env; then printf 'AI3_ADMIN_KEY=%s\n' "$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')" >> .env; fi
+  if ! grep -q '^AI3_ADMIN_PASSWORD=' .env; then printf 'AI3_ADMIN_PASSWORD=%s\n' "$(python3 -c 'import secrets;print("AI3-"+secrets.token_urlsafe(18))')" >> .env; fi
   chmod 600 .env
 fi
 ./scripts/network-refresh.sh >/dev/null
@@ -122,4 +135,4 @@ fi
 PKI_HTTP="$(curl -ksS -o /tmp/ai3-pki.json -w '%{http_code}' https://localhost/v1/pki/ca)"
 case "$PKI_HTTP" in 2??) ;; *) echo "AI3: Eigene PKI ist nicht erreichbar (HTTP $PKI_HTTP)."; exit 1;; esac
 ./scripts/open-web-ui.sh || true
-printf '\nAI3 One-Click fertig:\n  Öffentlich: https://%s\n  LAN-IP:      https://%s\n  LAN-Name:    https://%s\n  Router:      TCP 80 + 443 -> %s\n  Admin-Mail:  %s\n  Admin-Login: geprüft\n  Admin-Setup: beim ersten Start lokal konfigurierbar\nLokales Modell: %s\nHTTPS: automatisch\nEigene PKI: geprüft\nOwn Verification: aktiv\nAuto-Update: alle 15 Minuten von GitHub\nWeb UI: Browser wird bei einer grafischen Ubuntu-Sitzung automatisch geöffnet.\n' "$DOMAIN" "$LAN_IP" "$LAN_HOSTNAME" "$LAN_IP" "$ADMIN_EMAIL" "$MODEL"
+printf '\nAI3 One-Click fertig:\n  Öffentlich: https://%s\n  LAN-IP:      https://%s\n  LAN-Name:    https://%s\n  Router:      TCP 80 + 443 -> %s\n  Admin-Mail:  %s\n  Admin-Login: geprüft\n  Admin-Setup: beim ersten Start lokal konfigurierbar\nLokales Modell: %s\nHTTPS: automatisch\nEigene PKI: geprüft\nOwn Verification: aktiv\nAuto-Update: alle 15 Minuten von GitHub\nManuelles AI3-Update: %s/scripts/setup-local.sh --update\nWeb UI: Browser wird bei einer grafischen Ubuntu-Sitzung automatisch geöffnet.\n' "$DOMAIN" "$LAN_IP" "$LAN_HOSTNAME" "$LAN_IP" "$ADMIN_EMAIL" "$MODEL" "$ROOT_DIR"
