@@ -40,7 +40,16 @@ export AI3_USE_GPU="$GPU_COMPOSE_READY"
 mkdir -p openclaw runtime
 chmod +x scripts/*.sh 2>/dev/null || true
 ./scripts/setup-local.sh
-if [ "$GPU_COMPOSE_READY" -eq 1 ]; then docker compose --profile gpu up -d --build ai3-training-worker; else echo "Keine funktionierende NVIDIA-GPU – GPU-Training bleibt deaktiviert."; fi
+# Run exactly one training backend: CUDA GPU when available, otherwise CPU+RAM.
+if [ "$GPU_COMPOSE_READY" -eq 1 ]; then
+  docker compose --profile cpu down --remove-orphans ai3-training-worker-cpu >/dev/null 2>&1 || true
+  docker compose --profile gpu up -d --build ai3-training-worker
+  echo "AI3 Training: NVIDIA GPU + system RAM/CPU available."
+else
+  docker compose --profile gpu down --remove-orphans ai3-training-worker >/dev/null 2>&1 || true
+  docker compose --profile cpu up -d --build ai3-training-worker-cpu
+  echo "AI3 Training: CPU + system RAM mode."
+fi
 ./scripts/doctor.sh || true
 ./scripts/open-web-ui.sh || true
 echo "AI3 One-Click abgeschlossen. Control Center wurde geöffnet, sofern eine grafische Ubuntu-Sitzung vorhanden ist."
