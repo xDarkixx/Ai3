@@ -22,12 +22,26 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Validate shell scripts
         run: bash -n scripts/*.sh
+      - name: Validate updater and web agent
+        run: |
+          python -m py_compile update_agent.py
+          test -s scripts/update-ai3.sh
+          test -s systemd/ai3-auto-update.service
+          test -s systemd/ai3-auto-update.timer
+          grep -q 'git fetch' scripts/update-ai3.sh
+          grep -q 'git pull --ff-only' scripts/update-ai3.sh
+          grep -q 'flock' scripts/update-ai3.sh
+          grep -q '/health' scripts/update-ai3.sh
+          grep -q 'rollback' scripts/update-ai3.sh || grep -q 'Rollback' scripts/update-ai3.sh
+          grep -q 'ai3-update-agent' docker-compose.override.yml
+          echo 'updater contract: OK'
       - name: Validate web assets
         run: |
           test -s web/index.html
           test -s web/app.js
           test -s web/style.css
           test -s web/branding.js
+          test -s web/updates.js
           python - <<'PY'
           from pathlib import Path
           import re
@@ -35,6 +49,7 @@ jobs:
           assert '/web/style.css' in html
           assert '/web/app.js' in html
           assert '/web/branding.js' in html
+          assert '/web/updates.js' in html
           for asset in re.findall(r'(?:href|src)="(/web/[^"?#]+)', html):
               assert Path('.' + asset).is_file(), asset
           print('web assets: OK')
@@ -46,6 +61,7 @@ jobs:
           import json
           compose = Path('docker-compose.yml').read_text()
           public = Path('docker-compose.public.yml').read_text()
+          override = Path('docker-compose.override.yml').read_text()
           caddy = Path('Caddyfile').read_text()
           refresh = Path('scripts/network-refresh.sh').read_text()
           branding = Path('web/branding.js').read_text()
@@ -53,7 +69,9 @@ jobs:
           assert 'AI3_LAN_IP: ${AI3_LAN_IP:-127.0.0.1}' in compose
           assert './runtime:/runtime:ro' in compose
           assert './runtime:/runtime:ro' in public
+          assert './runtime:/runtime' in override
           assert '/__ai3/network-info.json' in caddy
+          assert '/__ai3/update/' in caddy
           assert 'lan-info.json' in refresh
           assert 'router_changes_automatic' in refresh
           assert '/__ai3/network-info.json' in branding
@@ -71,6 +89,7 @@ jobs:
       - name: Validate Docker Compose files
         run: |
           docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.override.yml config -q
           docker compose -f docker-compose.yml -f docker-compose.gpu.yml config -q
           docker compose -f docker-compose.yml -f docker-compose.public.yml config -q
       - name: Validate Caddy configuration
