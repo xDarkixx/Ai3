@@ -23,13 +23,11 @@ services:
     networks:
       - ai3-public
       - default
-
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
     volumes:
       - ollama-data:/root/.ollama
-
   ollama-init:
     image: ollama/ollama:latest
     depends_on:
@@ -41,7 +39,6 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: ["until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull \"$${AI3_MODEL}\""]
     restart: "no"
-
   ai3-token-server:
     build: .
     restart: unless-stopped
@@ -76,7 +73,22 @@ services:
       - ai3_data_key
     volumes:
       - ai3-data:/data
-
+  ai3-agent-worker:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_started
+      ai3-token-server:
+        condition: service_started
+    command: ["python", "agent_worker.py"]
+    environment:
+      AI3_DB: /data/ai3.db
+      AI3_OLLAMA_URL: http://ollama:11434
+      AI3_AGENT_POLL_SECONDS: ${AI3_AGENT_POLL_SECONDS:-2}
+      AI3_AGENT_TIMEOUT: ${AI3_AGENT_TIMEOUT:-600}
+    volumes:
+      - ai3-data:/data
   ai3-api-server:
     build: .
     restart: unless-stopped
@@ -96,17 +108,14 @@ services:
       - ai3_data_key
     volumes:
       - ai3-data:/data
-
 secrets:
   ai3_data_key:
     file: ./secrets/ai3_data_encryption_key
-
 volumes:
   ai3-data:
   ollama-data:
   caddy-data:
   caddy-config:
-
 networks:
   ai3-public:
     name: ai3-public
