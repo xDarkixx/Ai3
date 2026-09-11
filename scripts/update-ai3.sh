@@ -50,7 +50,6 @@ if [ "$current_sha" = "$remote_sha" ]; then
   exit 0
 fi
 
-# Automatic mode is opt-in. Manual requests are always allowed.
 auto_enabled=0
 if [ -f "$CONFIG_FILE" ]; then
   auto_enabled="$(python3 - "$CONFIG_FILE" <<'PY'
@@ -89,6 +88,37 @@ if ! docker compose up -d --build; then
   exit 1
 fi
 
+# Keep exactly one training backend active. The installer may have selected GPU
+# mode, while older installations may only expose the hardware at update time.
+TRAINING_MODE="cpu"
+if [ "${AI3_USE_GPU:-}" = "1" ]; then
+  TRAINING_MODE="gpu"
+elif [ "${AI3_USE_GPU:-}" != "0" ] && command -v nvidia-smi >/dev/null 2>&1; then
+  if docker run --rm --gpus all nvidia/cuda:12.6.2-base-ubuntu24.04 nvidia-smi >/dev/null 2>&1; then
+    TRAINING_MODE="gpu"
+  fi
+fi
+
+if [ "$TRAINING_MODE" = "gpu" ]; then
+  docker compose --profile cpu stop ai3-training-worker-cpu >/dev/null 2>&1 || true
+  docker compose --profile cpu rm -f ai3-training-worker-cpu >/dev/null 2>&1 || true
+  if ! docker compose --profile gpu up -d --build ai3-training-worker; then
+    git reset --hard "$previous_sha" >/dev/null 2>&1 || true
+    docker compose --profile gpu up -d --build ai3-training-worker >/dev/null 2>&1 || true
+    write_status "error" "GPU-Training-Worker konnte nach dem Update nicht gestartet werden; Rollback ausgeführt." "$previous_sha" "$remote_sha"
+    exit 1
+  fi
+else
+  docker compose --profile gpu stop ai3-training-worker >/dev/null 2>&1 || true
+  docker compose --profile gpu rm -f ai3-training-worker >/dev/null 2>&1 || true
+  if ! docker compose --profile cpu up -d --build ai3-training-worker-cpu; then
+    git reset --hard "$previous_sha" >/dev/null 2>&1 || true
+    docker compose --profile cpu up -d --build ai3-training-worker-cpu >/dev/null 2>&1 || true
+    write_status "error" "CPU-Training-Worker konnte nach dem Update nicht gestartet werden; Rollback ausgeführt." "$previous_sha" "$remote_sha"
+    exit 1
+  fi
+fi
+
 healthy=0
 for _ in $(seq 1 36); do
   if curl -kfsS --max-time 3 https://localhost/health >/dev/null 2>&1; then healthy=1; break; fi
@@ -104,4 +134,4 @@ fi
 
 rm -f "$REQUEST_FILE"
 new_sha="$(git rev-parse HEAD)"
-write_status "updated" "AI3 wurde erfolgreich aktualisiert." "$new_sha" "$new_sha"
+write_status "updated" "AI3 wurde erfolgreich aktualisiert ($TRAINING_MODE-Training)." "$new_sha" "$new_sha"
