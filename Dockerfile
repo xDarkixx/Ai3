@@ -10,4 +10,4 @@ COPY sitecustomize.py ./sitecustomize.py
 ENV AI3_DB=/data/ai3.db
 ENV AI3_ENABLE_ADVANCED_SECURITY=1
 EXPOSE 8080 8090 8091
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8080"]
