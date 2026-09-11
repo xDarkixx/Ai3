@@ -77,12 +77,12 @@ fi
 export AI3_USE_GPU="$GPU_COMPOSE_READY"
 
 echo "[5/8] Installiere und starte den kompletten AI3-Stack ..."
-mkdir -p openclaw
-chmod +x scripts/setup-local.sh scripts/network-refresh.sh scripts/setup-mail.sh scripts/doctor.sh scripts/mail-check.sh 2>/dev/null || true
+mkdir -p openclaw runtime
+chmod +x scripts/setup-local.sh scripts/network-refresh.sh scripts/setup-mail.sh scripts/doctor.sh scripts/mail-check.sh scripts/update-ai3.sh 2>/dev/null || true
 ./scripts/setup-local.sh
 
-# Install a boot service plus a periodic timer. It only refreshes the LAN identity;
-# the router is never modified automatically.
+# Install LAN refresh plus the GitHub updater. The updater only changes a clean
+# checkout, rebuilds the stack, checks /health and rolls back on failure.
 if command -v systemctl >/dev/null 2>&1; then
   python3 - "$ROOT_DIR/systemd/ai3-network-refresh.service" "/etc/systemd/system/ai3-network-refresh.service" "$ROOT_DIR" <<'PY'
 from pathlib import Path
@@ -91,10 +91,21 @@ source, target, root = map(Path, sys.argv[1:])
 text = source.read_text(encoding="utf-8").replace("/opt/ai3", str(root))
 Path(target).write_text(text, encoding="utf-8")
 PY
+  python3 - "$ROOT_DIR/systemd/ai3-auto-update.service" "/etc/systemd/system/ai3-auto-update.service" "$ROOT_DIR" <<'PY'
+from pathlib import Path
+import sys
+source, target, root = map(Path, sys.argv[1:])
+text = source.read_text(encoding="utf-8").replace("/opt/ai3", str(root))
+Path(target).write_text(text, encoding="utf-8")
+PY
   install -m 0644 systemd/ai3-network-refresh.timer /etc/systemd/system/ai3-network-refresh.timer
+  install -m 0644 systemd/ai3-auto-update.timer /etc/systemd/system/ai3-auto-update.timer
+  if [ ! -f runtime/update-config.json ]; then printf '{"auto_update":true}\n' > runtime/update-config.json; fi
   systemctl daemon-reload
   systemctl enable --now ai3-network-refresh.timer
+  systemctl enable --now ai3-auto-update.timer
   systemctl start ai3-network-refresh.service || true
+  systemctl start ai3-auto-update.service || true
 fi
 
 # Only a previously active UFW firewall is changed; UFW is never enabled by AI3.
@@ -106,9 +117,10 @@ echo "[6/8] Starte Mailserver und führe Abschlussdiagnose aus ..."
 ./scripts/setup-mail.sh
 ./scripts/doctor.sh
 
-echo "[7/8] Verifiziere persistentes Restart- und Netzwerkverhalten ..."
+echo "[7/8] Verifiziere persistentes Restart-, Netzwerk- und Update-Verhalten ..."
 docker compose ps
 systemctl is-enabled ai3-network-refresh.timer >/dev/null 2>&1 && echo "LAN-Watcher: aktiv (Boot + alle 2 Minuten)" || echo "LAN-Watcher: nicht unter systemd aktiviert"
+systemctl is-enabled ai3-auto-update.timer >/dev/null 2>&1 && echo "Auto-Updater: aktiv (GitHub-Check alle 15 Minuten)" || echo "Auto-Updater: nicht unter systemd aktiviert"
 
 LAN_HOSTNAME="$(grep '^AI3_LAN_HOSTNAME=' .env | cut -d= -f2- || true)"
 LAN_IP="$(grep '^AI3_LAN_IP=' .env | cut -d= -f2- || true)"
@@ -128,5 +140,7 @@ echo "AI3 Public: https://$DOMAIN"
 echo "Mail:       https://mail.$DOMAIN"
 echo "OpenClaw:   openclaw/ai3-provider.generated.json5"
 echo "Netzwerk:   IP wird automatisch beim Boot und regelmäßig aktualisiert"
+echo "Auto-Update: GitHub-Check alle 15 Minuten, Rollback bei Fehler"
+echo "Web-Update: System → AI3 Updates"
 echo "Router:     nur manuelle Portfreigabe zu diesem PC (80/443)"
 echo "========================================"
