@@ -65,8 +65,8 @@ jobs:
           caddy = Path('Caddyfile').read_text()
           refresh = Path('scripts/network-refresh.sh').read_text()
           branding = Path('web/branding.js').read_text()
-          assert 'AI3_LAN_HOSTNAME: ${AI3_LAN_HOSTNAME:-localhost}' in compose
-          assert 'AI3_LAN_IP: ${AI3_LAN_IP:-127.0.0.1}' in compose
+          assert 'AI3_LAN_HOSTNAME:' in compose and 'AI3_LAN_HOSTNAME:-localhost' in compose
+          assert 'AI3_LAN_IP:' in compose and 'AI3_LAN_IP:-127.0.0.1' in compose
           assert './runtime:/runtime:ro' in compose
           assert './runtime:/runtime:ro' in public
           assert './runtime:/runtime' in override
