@@ -34,5 +34,6 @@ try:
     from app.ai_lab import install as install_ai_lab; install_ai_lab(app)
     from app.agent_runtime import install as install_agent_runtime; install_agent_runtime(app)
     from app.training_lab import install as install_training_lab; install_training_lab(app)
+    from app.hardware_monitor import install as install_hardware_monitor; install_hardware_monitor(app)
 except Exception:
     pass
