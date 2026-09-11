@@ -1,0 +1,9 @@
+[Unit]
+Description=AI3 GitHub Auto Updater
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ai3
+ExecStart=/opt/ai3/scripts/update-ai3.sh
