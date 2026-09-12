@@ -36,7 +36,15 @@ jobs:
           grep -q 'docker-ce' scripts/ensure-host-deps.sh
           grep -q 'docker-compose-plugin' scripts/ensure-host-deps.sh
           grep -q 'nvidia-container-toolkit' scripts/ensure-host-deps.sh
+          grep -q 'Ubuntu-Version ab 24.04' docs/INSTALL-UBUNTU.md
           echo 'fresh-install bootstrap: OK'
+      - name: Validate Ubuntu release policy
+        run: |
+          grep -q '24|25|26' AI3-Install.run
+          grep -q '24|25|26' scripts/install-ubuntu.sh
+          grep -q 'Ubuntu 24.04+' README.md
+          grep -q 'Ubuntu 24.04 und neuere' docs/INSTALL-UBUNTU.md
+          echo 'Ubuntu 24.04+ policy: OK'
       - name: Validate updater and web agent
         run: |
           python -m py_compile update_agent.py
@@ -91,12 +99,7 @@ jobs:
           assert 'lan-info.json' in refresh
           assert 'router_changes_automatic' in refresh
           assert '/__ai3/network-info.json' in branding
-          sample = {
-              'hostname': 'AI3-PC', 'ip': '192.168.1.20', 'interface': 'enp1s0',
-              'gateway': '192.168.1.1', 'updated_at': '2026-01-01T00:00:00Z',
-              'router_target': {'tcp': [80, 443]}, 'automatic_lan_refresh': True,
-              'router_changes_automatic': False,
-          }
+          sample = {'hostname':'AI3-PC','ip':'192.168.1.20','interface':'enp1s0','gateway':'192.168.1.1','updated_at':'2026-01-01T00:00:00Z','router_target':{'tcp':[80,443]},'automatic_lan_refresh':True,'router_changes_automatic':False}
           encoded = json.dumps(sample)
           assert 'AI3_ADMIN_KEY' not in encoded
           assert 'AI3_ADMIN_PASSWORD' not in encoded
