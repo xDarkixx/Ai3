@@ -23,36 +23,31 @@ gateway="$(ip -4 route show default 2>/dev/null | awk 'NR==1 {print $3}')"
 gateway="${gateway:-unknown}"
 updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# Only change the two dynamic values. Secrets and all other user configuration stay untouched.
+# AI3 never configures a fixed Ubuntu address. These values are refreshed from
+# the current DHCP/network state whenever the installer/updater runs.
 if [ -f "$ENV_FILE" ]; then
   python3 - "$ENV_FILE" "$hostname_value" "$ip_value" <<'PY'
 from pathlib import Path
 import sys
-
 path = Path(sys.argv[1])
-hostname = sys.argv[2]
-ip = sys.argv[3]
+hostname, ip = sys.argv[2:]
 lines = path.read_text(encoding="utf-8").splitlines()
 values = {"AI3_LAN_HOSTNAME": hostname, "AI3_LAN_IP": ip}
-seen = set()
-out = []
+seen = set(); out = []
 for line in lines:
     key = line.split("=", 1)[0] if "=" in line else ""
     if key in values:
-        out.append(f"{key}={values[key]}")
-        seen.add(key)
+        out.append(f"{key}={values[key]}"); seen.add(key)
     else:
         out.append(line)
 for key, value in values.items():
-    if key not in seen:
-        out.append(f"{key}={value}")
+    if key not in seen: out.append(f"{key}={value}")
 path.write_text("\n".join(out) + "\n", encoding="utf-8")
 PY
   chmod 600 "$ENV_FILE"
 fi
 
-old_ip=""
-old_hostname=""
+old_ip=""; old_hostname=""
 [ -f "$STATE_FILE" ] && old_ip="$(grep '^AI3_LAN_IP=' "$STATE_FILE" | cut -d= -f2- || true)"
 [ -f "$STATE_FILE" ] && old_hostname="$(grep '^AI3_LAN_HOSTNAME=' "$STATE_FILE" | cut -d= -f2- || true)"
 
@@ -65,22 +60,16 @@ AI3_LAN_UPDATED_AT=$updated_at
 EOF
 chmod 600 "$STATE_FILE"
 
-# This JSON is deliberately limited to non-secret network metadata and is mounted read-only into Caddy.
 python3 - "$JSON_FILE" "$hostname_value" "$ip_value" "$interface" "$gateway" "$updated_at" <<'PY'
 import json
 from pathlib import Path
 import sys
-
 path = Path(sys.argv[1])
 data = {
-    "hostname": sys.argv[2],
-    "ip": sys.argv[3],
-    "interface": sys.argv[4] or "unknown",
-    "gateway": sys.argv[5],
-    "updated_at": sys.argv[6],
-    "router_target": {"tcp": [80, 443]},
-    "automatic_lan_refresh": True,
-    "router_changes_automatic": False,
+    "hostname": sys.argv[2], "ip": sys.argv[3],
+    "interface": sys.argv[4] or "unknown", "gateway": sys.argv[5],
+    "updated_at": sys.argv[6], "router_target": {"tcp": [80, 443]},
+    "automatic_lan_refresh": True, "router_changes_automatic": False,
 }
 tmp = path.with_suffix(".json.tmp")
 tmp.write_text(json.dumps(data, ensure_ascii=True, separators=(",", ":")) + "\n", encoding="utf-8")
@@ -88,16 +77,21 @@ tmp.replace(path)
 PY
 chmod 644 "$JSON_FILE"
 
+# If the host firewall is already enabled, allow only the public AI3 web entry
+# ports. We never enable UFW or open ports on a disabled firewall by ourselves.
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw allow 80/tcp >/dev/null || true
+  ufw allow 443/tcp >/dev/null || true
+fi
+
 changed=0
 if [ "$old_ip" != "$ip_value" ] || [ "$old_hostname" != "$hostname_value" ]; then changed=1; fi
-
 if [ "$changed" -eq 1 ]; then
   echo "[AI3-NETWORK] LAN-Adresse aktualisiert: ${old_ip:-unbekannt} -> $ip_value"
   echo "[AI3-NETWORK] PC-Name: $hostname_value"
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && docker compose config -q >/dev/null 2>&1; then
-    # Recreate only Caddy so its site-address environment is refreshed. AI3/Ollama stay running.
     docker compose up -d --no-deps caddy >/dev/null 2>&1 || echo "[AI3-NETWORK] Caddy konnte noch nicht aktualisiert werden; nächster Lauf versucht es erneut."
   fi
 fi
 
-printf 'AI3 LAN: https://%s | Hostname: %s | Gateway: %s | Interface: %s\n' "$ip_value" "$hostname_value" "$gateway" "${interface:-unknown}"
+printf 'AI3 LAN: http://%s | https://%s | Hostname: %s | Gateway: %s | Interface: %s\n' "$ip_value" "$ip_value" "$hostname_value" "$gateway" "${interface:-unknown}"
