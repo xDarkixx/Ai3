@@ -6,4 +6,5 @@ Wants=docker.service network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/ai3
+ExecStartPre=/opt/ai3/scripts/network-refresh.sh
 ExecStart=/opt/ai3/scripts/update-ai3.sh
