@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# AI3 — single-file bootstrap installer
+# Usage on a fresh Ubuntu host:
+#   chmod +x AI3-Install.run && sudo ./AI3-Install.run
+set -euo pipefail
+
+REPO="xDarkixx/Ai3"
+BRANCH="main"
+INSTALL_DIR="${AI3_INSTALL_DIR:-/opt/ai3}"
+TMP_DIR="$(mktemp -d /tmp/ai3-bootstrap.XXXXXX)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+log(){ printf '\n[AI3] %s\n' "$*"; }
+die(){ printf '\n[AI3] FEHLER: %s\n' "$*" >&2; exit 1; }
+
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  command -v sudo >/dev/null 2>&1 || die "sudo fehlt. Bitte als root starten oder sudo installieren."
+  exec sudo -E bash "$0" "$@"
+fi
+
+[ -r /etc/os-release ] || die "/etc/os-release fehlt."
+. /etc/os-release
+[ "${ID:-}" = "ubuntu" ] || die "AI3 benötigt Ubuntu. Erkannt: ${ID:-unbekannt}."
+
+case "${VERSION_ID:-}" in
+  24.04) ;;
+  *) die "Dieser One-File-Installer ist derzeit für Ubuntu 24.04 LTS ausgelegt (gefunden: ${VERSION_ID:-unbekannt})." ;;
+esac
+
+export DEBIAN_FRONTEND=noninteractive
+log "Prüfe Internet und installiere nur die minimalen Bootstrap-Werkzeuge ..."
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates curl git
+
+log "Lade immer den aktuellen AI3-Stand von GitHub ..."
+ARCHIVE="$TMP_DIR/ai3.tar.gz"
+curl -fL --retry 5 --retry-delay 2 --connect-timeout 15 "https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz" -o "$ARCHIVE"
+mkdir -p "$TMP_DIR/src"
+tar -xzf "$ARCHIVE" -C "$TMP_DIR/src"
+SRC="$(find "$TMP_DIR/src" -mindepth 1 -maxdepth 1 -type d -name 'Ai3-*' -print -quit)"
+[ -n "$SRC" ] || die "AI3-Quellarchiv konnte nicht entpackt werden."
+
+log "Installiere den aktuellen AI3-Stand nach $INSTALL_DIR ..."
+if [ -d "$INSTALL_DIR/.git" ]; then
+  # Preserve an existing installation and let its updater perform the normal
+  # fast-forward update. This avoids destroying persistent runtime data.
+  cd "$INSTALL_DIR"
+  git fetch --quiet origin "$BRANCH" || true
+  if git diff --quiet && git diff --cached --quiet; then
+    git pull --ff-only origin "$BRANCH" || true
+  fi
+else
+  mkdir -p "$INSTALL_DIR"
+  cp -a "$SRC/." "$INSTALL_DIR/"
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    git config --local remote.origin.url "https://github.com/${REPO}.git" || true
+  fi
+fi
+
+cd "$INSTALL_DIR"
+chmod +x scripts/*.sh 2>/dev/null || true
+
+[ -x scripts/install-ubuntu.sh ] || die "scripts/install-ubuntu.sh fehlt im aktuellen GitHub-Stand."
+
+log "Übergebe an den vollständigen AI3-One-Click-Installer ..."
+exec ./scripts/install-ubuntu.sh "$@"
