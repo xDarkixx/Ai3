@@ -5,7 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT_DIR"
 [ -r /etc/os-release ] || exit 1
 . /etc/os-release
 [ "${ID:-}" = ubuntu ] || { echo "AI3 One-Click benötigt Ubuntu."; exit 1; }
-case "${VERSION_ID:-}" in 24.04|24.04.*) ;; *) echo "AI3 One-Click ist derzeit für Ubuntu 24.04 LTS ausgelegt (gefunden: ${VERSION_ID:-unbekannt})."; exit 1;; esac
+MAJOR="${VERSION_ID%%.*}"; MINOR="${VERSION_ID#*.}"
+case "$MAJOR" in 24|25|26) ;; *) echo "Nicht unterstützte Ubuntu-Version: ${VERSION_ID:-unbekannt}. Unterstützt werden aktuelle Ubuntu-Releases ab 24.04."; exit 1;; esac
+if [ "$MAJOR" -eq 24 ] && [ "${MINOR%%.*}" -lt 4 ]; then echo "Ubuntu ${VERSION_ID} ist zu alt. Unterstützt werden Ubuntu 24.04+."; exit 1; fi
+
+echo "AI3: Ubuntu ${VERSION_ID} erkannt."
 
 # Pull in every host dependency AI3 itself requires. This is safe to run again
 # during later installs/repairs: it installs missing packages but does not
