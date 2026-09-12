@@ -82,6 +82,24 @@ if ! git pull --ff-only origin "$BRANCH"; then
   exit 1
 fi
 
+# A repo change can include the updater/timer itself. Keep the installed
+# maintenance entrypoint executable and refresh systemd without requiring a
+# reinstall. Existing timers keep their current schedule.
+chmod +x "$ROOT_DIR/scripts/update-ai3.sh" "$ROOT_DIR/scripts/network-refresh.sh" 2>/dev/null || true
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if [ -f /etc/systemd/system/ai3-auto-update.timer ]; then
+    systemctl enable --now ai3-auto-update.timer >/dev/null 2>&1 || true
+  fi
+fi
+
+# Re-apply the current DHCP-derived LAN address after the new repository
+# version has been checked out, so Caddy immediately uses the latest network
+# metadata without changing the host's networking configuration.
+if [ -x "$ROOT_DIR/scripts/network-refresh.sh" ]; then
+  "$ROOT_DIR/scripts/network-refresh.sh" >/dev/null 2>&1 || true
+fi
+
 if ! docker compose config -q; then
   git reset --hard "$previous_sha" >/dev/null 2>&1 || true
   write_status "error" "Docker-Compose-Konfiguration ungültig; Rollback ausgeführt." "$previous_sha" "$remote_sha"
