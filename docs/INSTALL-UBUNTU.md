@@ -1,21 +1,23 @@
 # AI3 — Ubuntu-Installation
 
-## 1. Empfohlenes System
+## 1. Unterstützte Systeme
 
-AI3 ist für **Ubuntu Server 24.04 LTS, 64-bit AMD64** ausgelegt.
+AI3 ist für **Ubuntu 24.04 und neuere unterstützte Ubuntu-Releases, 64-bit AMD64** ausgelegt.
+
+Der Installer ist nicht auf exakt Ubuntu 24.04 festgelegt. Er prüft, ob eine unterstützte Ubuntu-Version ab 24.04 vorhanden ist, und installiert die benötigten Pakete über die Paketquellen des jeweiligen Systems.
 
 Ubuntu Desktop ist nicht erforderlich. Die AI3-Control-Center-Oberfläche läuft über einen normalen Browser auf einem anderen PC im LAN. So bleiben die Ressourcen des Servers für Docker, Ollama und die KI-Modelle verfügbar.
 
 ## 2. Frische Installation mit nur einer Datei
 
-Auf einem frisch installierten Ubuntu 24.04 LTS brauchst du nur `AI3-Install.run` als Startdatei.
+Auf einem aktuellen Ubuntu 24.04+ brauchst du nur `AI3-Install.run` als Startdatei.
 
 ```bash
 chmod +x AI3-Install.run
 sudo ./AI3-Install.run
 ```
 
-Der Bootstrap installiert zunächst nur die notwendigen Werkzeuge (`ca-certificates`, `curl`, `git`). Danach lädt er automatisch den aktuellen `main`-Stand von:
+Der Bootstrap installiert zunächst nur die notwendigen Werkzeuge (`ca-certificates`, `curl`, `git`, `tar`). Danach lädt er automatisch den aktuellen `main`-Stand von:
 
 `https://github.com/xDarkixx/Ai3`
 
@@ -27,7 +29,7 @@ Anschließend wird automatisch der vollständige AI3-Installer ausgeführt.
 
 ### Was automatisch eingerichtet wird
 
-- Ubuntu-Prüfung
+- Ubuntu-Version ab 24.04 prüfen
 - Docker Engine und Docker Compose
 - fehlende Host-Abhängigkeiten
 - NVIDIA-Erkennung und Container-Unterstützung, sofern kompatibel
