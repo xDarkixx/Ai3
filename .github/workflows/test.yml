@@ -21,7 +21,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Validate shell scripts
-        run: bash -n scripts/*.sh
+        run: bash -n scripts/*.sh install.sh
+      - name: Validate fresh-install bootstrap
+        run: |
+          test -s install.sh
+          test -s scripts/install-ubuntu.sh
+          test -s scripts/ensure-host-deps.sh
+          grep -q 'github.com/xDarkixx/Ai3.git' install.sh
+          grep -q 'ensure-host-deps.sh' scripts/install-ubuntu.sh
+          grep -q 'docker-ce' scripts/ensure-host-deps.sh
+          grep -q 'docker-compose-plugin' scripts/ensure-host-deps.sh
+          grep -q 'nvidia-container-toolkit' scripts/ensure-host-deps.sh
+          echo 'fresh-install bootstrap: OK'
       - name: Validate updater and web agent
         run: |
           python -m py_compile update_agent.py
@@ -30,6 +41,7 @@ jobs:
           test -s systemd/ai3-auto-update.timer
           grep -q 'git fetch' scripts/update-ai3.sh
           grep -q 'git pull --ff-only' scripts/update-ai3.sh
+          grep -q 'ensure-host-deps.sh' scripts/update-ai3.sh
           grep -q 'flock' scripts/update-ai3.sh
           grep -q '/health' scripts/update-ai3.sh
           grep -q 'rollback' scripts/update-ai3.sh || grep -q 'Rollback' scripts/update-ai3.sh
