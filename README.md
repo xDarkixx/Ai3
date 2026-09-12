@@ -6,14 +6,16 @@ AI3 ist ein selbst gehostetes Gateway für lokale KI-Modelle, KI-Agenten, Benutz
 
 ## 🚀 Ein-Datei-Installation
 
-Der einfachste Weg auf einem **frischen Ubuntu 24.04 LTS AMD64** ist jetzt die einzelne Datei `AI3-Install.run`.
+Der einfachste Weg auf einem **aktuellen Ubuntu 24.04+ AMD64-System** ist die einzelne Datei `AI3-Install.run`.
 
-Die Datei ist ein Bootstrap: Sie installiert die minimal benötigten Werkzeuge, lädt automatisch den **aktuellen AI3-Stand von GitHub** und startet anschließend die vollständige Installation. Du musst vorher nicht das komplette Repository klonen.
+Der Installer ist absichtlich **nicht auf Ubuntu 24.04 fest verdrahtet**. Er akzeptiert unterstützte Ubuntu-Releases ab 24.04 und verwendet die Paketquellen und Host-Abhängigkeiten der erkannten Ubuntu-Version.
 
 ```bash
 chmod +x AI3-Install.run
 sudo ./AI3-Install.run
 ```
+
+Die Datei ist ein Bootstrap: Sie installiert die minimal benötigten Werkzeuge, lädt automatisch den **aktuellen AI3-Stand von GitHub** und startet anschließend die vollständige Installation. Du musst vorher nicht das komplette Repository klonen.
 
 Der Installer erledigt danach automatisch:
 
@@ -33,9 +35,15 @@ Der Installer erledigt danach automatisch:
 
 **Die einzelne Datei ist der Startpunkt; der eigentliche AI3-Quellstand bleibt im Repository.** Dadurch lädt eine neue Installation immer den aktuellen Stand statt eine veraltete Kopie zu installieren.
 
+### Unterstützte Ubuntu-Versionen
+
+Der Installer unterstützt **Ubuntu 24.04 und neuere unterstützte Ubuntu-Releases**. Die Installer-Prüfung lässt aktuelle Ubuntu-Versionen ab 24.04 zu, statt nur `24.04` zu akzeptieren.
+
+Ubuntu Desktop ist nicht erforderlich. Die AI3-Weboberfläche läuft über den Browser; dadurch bleiben CPU, RAM und GPU für AI3 verfügbar.
+
 ### Erneute Installation / vorhandenes AI3
 
-Wenn `/opt/ai3` bereits existiert, versucht `AI3-Install.run` die bestehende Git-Installation per Fast-Forward zu aktualisieren. Persistente Runtime-Daten werden dabei nicht absichtlich gelöscht. Bei lokalen Git-Änderungen wird nicht blind überschrieben.
+Wenn `/opt/ai3` bereits existiert, versucht `AI3-Install.run` die bestehende Git-Installation per Fast-Forward zu aktualisieren, sofern keine lokalen Änderungen vorhanden sind. Persistente Runtime-Daten werden dabei nicht absichtlich gelöscht.
 
 ### Automatische Updates nach der Installation
 
@@ -43,12 +51,10 @@ Nach der Erstinstallation überwacht AI3 automatisch den konfigurierten GitHub-B
 
 ## Passendes Betriebssystem
 
-Der One-Click-Installer ist für **Ubuntu Server 24.04 LTS, 64-bit AMD64** ausgelegt.
+Der One-Click-Installer ist für **Ubuntu 24.04+ 64-bit AMD64** ausgelegt.
 
 - Detaillierte Anleitung: [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md)
 - Optionaler Ubuntu-Download + SHA256-Prüfung: `scripts/download-ubuntu.sh`
-
-Ubuntu Desktop ist nicht erforderlich. Die AI3-Weboberfläche läuft über den Browser; dadurch bleiben CPU, RAM und GPU für AI3 verfügbar.
 
 ## 🔄 Automatische Netzwerk-Selbstheilung
 
