@@ -14,6 +14,13 @@ mkdir -p "$RUNTIME_DIR"
 exec 9>"$LOCK_FILE"
 flock -n 9 || exit 0
 
+# Refresh DHCP-derived LAN information on every AI3 update check. This never
+# changes Ubuntu networking; it only records the currently active LAN address
+# and refreshes Caddy when that address changes.
+if [ -x "$ROOT_DIR/scripts/network-refresh.sh" ]; then
+  "$ROOT_DIR/scripts/network-refresh.sh" >/dev/null 2>&1 || true
+fi
+
 write_status() {
   local state="$1" message="$2" current="${3:-}" remote="${4:-}"
   python3 - "$STATUS_FILE" "$state" "$message" "$current" "$remote" <<'PY'
