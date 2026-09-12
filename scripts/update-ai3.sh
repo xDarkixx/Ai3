@@ -85,11 +85,22 @@ fi
 # A repo change can include the updater/timer itself. Keep the installed
 # maintenance entrypoint executable and refresh systemd without requiring a
 # reinstall. Existing timers keep their current schedule.
-chmod +x "$ROOT_DIR/scripts/update-ai3.sh" "$ROOT_DIR/scripts/network-refresh.sh" 2>/dev/null || true
+chmod +x "$ROOT_DIR/scripts/update-ai3.sh" "$ROOT_DIR/scripts/network-refresh.sh" "$ROOT_DIR/scripts/ensure-host-deps.sh" 2>/dev/null || true
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
   systemctl daemon-reload >/dev/null 2>&1 || true
   if [ -f /etc/systemd/system/ai3-auto-update.timer ]; then
     systemctl enable --now ai3-auto-update.timer >/dev/null 2>&1 || true
+  fi
+fi
+
+# New AI3 versions may require a new host dependency. Install only missing
+# prerequisites automatically so the installed machine stays compatible with
+# the GitHub repository without a reinstall. Existing user data is untouched.
+if [ -x "$ROOT_DIR/scripts/ensure-host-deps.sh" ]; then
+  if ! "$ROOT_DIR/scripts/ensure-host-deps.sh" >/tmp/ai3-host-deps.log 2>&1; then
+    git reset --hard "$previous_sha" >/dev/null 2>&1 || true
+    write_status "error" "Benötigte Ubuntu-Abhängigkeiten konnten nicht eingerichtet werden; Rollback ausgeführt." "$previous_sha" "$remote_sha"
+    exit 1
   fi
 fi
 
@@ -113,8 +124,6 @@ if ! docker compose up -d --build; then
   exit 1
 fi
 
-# Keep exactly one training backend active. The installer may have selected GPU
-# mode, while older installations may only expose the hardware at update time.
 TRAINING_MODE="cpu"
 if [ "${AI3_USE_GPU:-}" = "1" ]; then
   TRAINING_MODE="gpu"
