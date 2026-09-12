@@ -21,12 +21,16 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Validate shell scripts
-        run: bash -n scripts/*.sh install.sh
+        run: bash -n scripts/*.sh install.sh AI3-Install.run
       - name: Validate fresh-install bootstrap
         run: |
+          test -s AI3-Install.run
           test -s install.sh
           test -s scripts/install-ubuntu.sh
           test -s scripts/ensure-host-deps.sh
+          grep -q 'github.com/xDarkixx/Ai3' AI3-Install.run
+          grep -q 'archive/refs/heads' AI3-Install.run
+          grep -q 'scripts/install-ubuntu.sh' AI3-Install.run
           grep -q 'github.com/xDarkixx/Ai3.git' install.sh
           grep -q 'ensure-host-deps.sh' scripts/install-ubuntu.sh
           grep -q 'docker-ce' scripts/ensure-host-deps.sh
