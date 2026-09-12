@@ -1,4 +1,4 @@
-{$AI3_DOMAIN:localhost}, {$AI3_LAN_HOSTNAME:localhost}, {$AI3_LAN_IP:127.0.0.1} {
+{$AI3_DOMAIN:localhost} {
     encode zstd gzip
 
     @ai3Network path /__ai3/network-info.json
@@ -14,6 +14,43 @@
         reverse_proxy ai3-update-agent:8091
     }
 
+    reverse_proxy ai3-token-server:8080
+}
+
+# LAN access is intentionally available over plain HTTP as a bootstrap/fallback
+# path. HTTPS remains available on the LAN IP through Caddy's local certificate.
+# This avoids a first-run browser lockout when the client does not yet trust the
+# AI3 local CA. Public/domain access remains HTTPS-only through the domain above.
+http://{$AI3_LAN_HOSTNAME:localhost}, http://{$AI3_LAN_IP:127.0.0.1} {
+    encode zstd gzip
+    @ai3Network path /__ai3/network-info.json
+    handle @ai3Network {
+        root * /runtime
+        header Cache-Control "no-store"
+        file_server
+    }
+    @ai3Update path /__ai3/update/*
+    handle @ai3Update {
+        uri strip_prefix /__ai3/update
+        reverse_proxy ai3-update-agent:8091
+    }
+    reverse_proxy ai3-token-server:8080
+}
+
+https://{$AI3_LAN_HOSTNAME:localhost}, https://{$AI3_LAN_IP:127.0.0.1} {
+    tls internal
+    encode zstd gzip
+    @ai3Network path /__ai3/network-info.json
+    handle @ai3Network {
+        root * /runtime
+        header Cache-Control "no-store"
+        file_server
+    }
+    @ai3Update path /__ai3/update/*
+    handle @ai3Update {
+        uri strip_prefix /__ai3/update
+        reverse_proxy ai3-update-agent:8091
+    }
     reverse_proxy ai3-token-server:8080
 }
 
