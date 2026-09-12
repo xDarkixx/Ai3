@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # AI3 — single-file bootstrap installer
-# Usage on a fresh Ubuntu host:
+# Supports current Ubuntu LTS releases and newer Ubuntu releases.
+# Usage:
 #   chmod +x AI3-Install.run && sudo ./AI3-Install.run
 set -euo pipefail
 
@@ -22,15 +23,22 @@ fi
 . /etc/os-release
 [ "${ID:-}" = "ubuntu" ] || die "AI3 benötigt Ubuntu. Erkannt: ${ID:-unbekannt}."
 
-case "${VERSION_ID:-}" in
-  24.04) ;;
-  *) die "Dieser One-File-Installer ist derzeit für Ubuntu 24.04 LTS ausgelegt (gefunden: ${VERSION_ID:-unbekannt})." ;;
+# AI3 is designed for supported Ubuntu releases rather than one fixed version.
+# Reject EOL releases and non-LTS versions older than the supported baseline.
+MAJOR="${VERSION_ID%%.*}"
+MINOR="${VERSION_ID#*.}"
+case "$MAJOR" in
+  24|25|26) ;;
+  *) die "Diese Ubuntu-Version wird nicht unterstützt: ${VERSION_ID:-unbekannt}. Unterstützt werden aktuelle Ubuntu-Releases ab 24.04." ;;
 esac
+if [ "$MAJOR" -eq 24 ] && [ "${MINOR%%.*}" -lt 4 ]; then
+  die "Ubuntu ${VERSION_ID} ist zu alt. Unterstützt werden Ubuntu 24.04+." 
+fi
 
 export DEBIAN_FRONTEND=noninteractive
-log "Prüfe Internet und installiere nur die minimalen Bootstrap-Werkzeuge ..."
+log "Ubuntu ${VERSION_ID} erkannt. Prüfe Internet und installiere nur die minimalen Bootstrap-Werkzeuge ..."
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl git
+apt-get install -y --no-install-recommends ca-certificates curl git tar
 
 log "Lade immer den aktuellen AI3-Stand von GitHub ..."
 ARCHIVE="$TMP_DIR/ai3.tar.gz"
@@ -42,8 +50,6 @@ SRC="$(find "$TMP_DIR/src" -mindepth 1 -maxdepth 1 -type d -name 'Ai3-*' -print 
 
 log "Installiere den aktuellen AI3-Stand nach $INSTALL_DIR ..."
 if [ -d "$INSTALL_DIR/.git" ]; then
-  # Preserve an existing installation and let its updater perform the normal
-  # fast-forward update. This avoids destroying persistent runtime data.
   cd "$INSTALL_DIR"
   git fetch --quiet origin "$BRANCH" || true
   if git diff --quiet && git diff --cached --quiet; then
