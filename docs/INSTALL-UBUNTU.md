@@ -1,66 +1,133 @@
-# AI3 — passendes Ubuntu-System
+# AI3 — Ubuntu-Installation
 
-## Empfohlenes System
+## 1. Empfohlenes System
 
-Für den AI3-One-Click-Installer ist **Ubuntu Server 24.04 LTS, 64-bit AMD64 (Noble Numbat)** vorgesehen.
+AI3 ist für **Ubuntu Server 24.04 LTS, 64-bit AMD64** ausgelegt.
 
-Die aktuelle Ubuntu-24.04-Reihe stellt derzeit **Ubuntu 24.04.4** bereit. Das offizielle Server-Installationsimage heißt:
+Ubuntu Desktop ist nicht erforderlich. Die AI3-Control-Center-Oberfläche läuft über einen normalen Browser auf einem anderen PC im LAN. So bleiben die Ressourcen des Servers für Docker, Ollama und die KI-Modelle verfügbar.
 
-`ubuntu-24.04.4-live-server-amd64.iso`
+## 2. Frische Installation mit nur einer Datei
 
-Offizielle Download-Seite:
-
-https://releases.ubuntu.com/24.04/
-
-Auf der offiziellen Release-Seite sind Desktop und Server getrennt aufgeführt; für AI3 ist das AMD64-Server-Image die passende Wahl.
-
-## Warum Server und nicht Desktop?
-
-AI3 benötigt keine grafische Linux-Oberfläche. Ubuntu Server spart Ressourcen und ist für einen dauerhaft laufenden Docker-Host besser geeignet. Eine Desktop-Installation funktioniert für viele Setups ebenfalls, ist aber nicht das Zielprofil des One-Click-Installers.
-
-## Hardware
-
-Ubuntu selbst hat deutlich niedrigere Mindestanforderungen als ein KI-Server. Für AI3 ist deshalb vor allem das gewünschte Modell entscheidend.
-
-Als praktische Ausgangsbasis:
-
-- CPU: 64-bit x86 / AMD64
-- RAM: mindestens 8 GB für einen kleinen lokalen KI-Stack; 16 GB+ sind für größere Modelle deutlich angenehmer
-- Speicher: mindestens 25 GB für das Basissystem; für Ollama-Modelle zusätzlich großzügig planen
-- GPU: optional; kompatible NVIDIA-GPU wird vom Installer automatisch erkannt
-- Netzwerk: Ethernet wird für einen Server empfohlen
-
-Mehr RAM/VRAM und SSD-Speicher werden benötigt, sobald größere Modelle installiert werden.
-
-## Installation
-
-Nach der Ubuntu-Installation:
+Auf einem frisch installierten Ubuntu 24.04 LTS brauchst du nur `AI3-Install.run` als Startdatei.
 
 ```bash
-cd /opt
-sudo git clone https://github.com/xDarkixx/Ai3.git ai3
-cd /opt/ai3
-sudo chmod +x scripts/install-ubuntu.sh
-sudo ./scripts/install-ubuntu.sh
+chmod +x AI3-Install.run
+sudo ./AI3-Install.run
 ```
 
-Der Installer prüft Ubuntu 24.04, installiert die benötigten Docker-Komponenten, erkennt NVIDIA-GPUs, startet den AI3-Stack und aktiviert den LAN-Watcher.
+Der Bootstrap installiert zunächst nur die notwendigen Werkzeuge (`ca-certificates`, `curl`, `git`). Danach lädt er automatisch den aktuellen `main`-Stand von:
 
-## Netzwerk nach der Installation
+`https://github.com/xDarkixx/Ai3`
 
-Der AI3-PC darf seine DHCP-Adresse ändern. AI3 erkennt beim Boot und anschließend regelmäßig:
+und installiert ihn unter:
+
+`/opt/ai3`
+
+Anschließend wird automatisch der vollständige AI3-Installer ausgeführt.
+
+### Was automatisch eingerichtet wird
+
+- Ubuntu-Prüfung
+- Docker Engine und Docker Compose
+- fehlende Host-Abhängigkeiten
+- NVIDIA-Erkennung und Container-Unterstützung, sofern kompatibel
+- CPU/RAM-Fallback ohne GPU
+- Ollama und lokale KI
+- AI3-Docker-Stack
+- Caddy/HTTPS
+- Mailserver, sofern in der Installation aktiviert
+- Secrets und Runtime-Konfiguration
+- eigene PKI
+- LAN-/DHCP-Erkennung
+- systemd-Dienste und Timer
+- Healthchecks
+- automatischer GitHub-Updater
+
+Du musst das komplette Repository vorher **nicht** manuell klonen.
+
+## 3. Nach der Installation
+
+AI3 startet seine Dienste automatisch. Die Weboberfläche ist über die vom Server angezeigte LAN-Adresse erreichbar.
+
+Die aktuelle Netzwerkidentität wird automatisch erkannt:
 
 - PC-Name
 - LAN-IPv4
 - Netzwerkadapter
 - Standard-Gateway
 
-Bei einer IP-Änderung werden die LAN-Daten aktualisiert und Caddy neu geladen. Datenbank und Ollama müssen dafür nicht neu gestartet werden.
+Eine DHCP-Adresse muss nicht fest in AI3 eingetragen werden.
 
-**Einmalig im Router:** TCP 80 und TCP 443 auf den AI3-PC weiterleiten. Der Router selbst wird von AI3 absichtlich nicht automatisch verändert.
+## 4. Automatische Updates
 
-Eine DHCP-Reservierung für den AI3-PC ist zusätzlich empfehlenswert.
+Nach der Erstinstallation prüft der AI3-Updater regelmäßig GitHub auf einen neuen Commit des konfigurierten Branches.
 
-## Kosten
+Bei einem neuen Stand:
 
-Ubuntu Server ist kostenlos verfügbar. AI3 ist für lokale Inferenz ohne kostenpflichtigen KI-API-Anbieter ausgelegt. Eigene Hardware, Strom, Internet und eine optionale öffentliche Domain bleiben normale Infrastrukturkosten.
+1. Repository-Stand wird aktualisiert.
+2. lokale Runtime-/Konfigurationsdaten bleiben erhalten.
+3. fehlende Host-Abhängigkeiten werden bei Bedarf nachinstalliert.
+4. Docker Compose wird validiert.
+5. der Stack wird neu gebaut/gestartet.
+6. AI3 führt Healthchecks durch.
+7. bei Fehler und aktiviertem Rollback wird der vorherige Stand wiederhergestellt.
+
+Damit müssen zukünftige AI3-Updates nicht manuell auf jedem Server eingespielt werden.
+
+## 5. Erneuter Start des Ein-Datei-Installers
+
+Wenn AI3 bereits unter `/opt/ai3` vorhanden ist, darf `AI3-Install.run` erneut gestartet werden. Die vorhandene Installation wird nicht absichtlich gelöscht. Der Installer versucht zunächst einen sicheren Fast-Forward-Updatepfad.
+
+Bei lokalen Änderungen am Git-Arbeitsbaum wird nicht blind überschrieben.
+
+## 6. Hardware
+
+Praktische Ausgangsbasis:
+
+- CPU: AMD64/x86-64
+- RAM: mindestens 16 GB empfohlen
+- SSD: mindestens 50 GB; für mehrere KI-Modelle deutlich mehr einplanen
+- GPU: optional
+- NVIDIA-GPU: automatische Erkennung, sofern kompatibel
+- Netzwerk: Ethernet empfohlen
+
+Für größere lokale Modelle sind vor allem **VRAM, RAM und SSD-Speicher** entscheidend.
+
+## 7. Netzwerk
+
+AI3 überwacht die LAN-Adresse automatisch. Bei einer DHCP-Änderung werden die Runtime-Netzwerkdaten aktualisiert und Caddy bei Bedarf neu geladen.
+
+**Router-Einstellungen werden nicht automatisch verändert.** Falls AI3 aus dem Internet erreichbar sein soll, müssen die gewünschten Ports am Router einmalig auf den AI3-PC weitergeleitet werden.
+
+Für öffentliches HTTPS müssen zusätzlich DNS und Domain korrekt eingerichtet sein.
+
+## 8. Öffentliche Mailzustellung
+
+Der integrierte Mailserver kann lokal betrieben werden. Für echte Internet-Mailzustellung werden unter anderem eine öffentliche IP, PTR/rDNS, korrekte DNS-Einträge und gegebenenfalls freigeschalteter Port 25 benötigt.
+
+## 9. Fehlerdiagnose
+
+Nach der Installation zuerst den AI3-Status und die Healthchecks verwenden. Für den Installations-/Updatepfad sind insbesondere diese Dateien relevant:
+
+```text
+AI3-Install.run
+scripts/install-ubuntu.sh
+scripts/ensure-host-deps.sh
+scripts/setup-local.sh
+scripts/update-ai3.sh
+scripts/network-refresh.sh
+```
+
+Wenn die Weboberfläche nicht erreichbar ist, zuerst die aktuelle LAN-IP des Servers prüfen. AI3 verwendet absichtlich keine fest eingebaute DHCP-Adresse.
+
+## 10. Manuelle Installation für Entwickler
+
+Wer das Repository bereits lokal hat, kann weiterhin direkt den vollständigen Installer starten:
+
+```bash
+cd /opt/ai3
+sudo chmod +x scripts/*.sh
+sudo ./scripts/install-ubuntu.sh
+```
+
+Der empfohlene Weg für neue Systeme bleibt jedoch **`AI3-Install.run`**.
